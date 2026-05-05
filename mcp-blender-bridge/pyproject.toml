@@ -1,0 +1,69 @@
+[project]
+name = "mcp-blender-bridge"
+version = "0.2.0"
+description = "Production-grade Blender MCP server — zero telemetry, Pydantic-validated, async-native, plugin-extensible"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Aayush Dubey", email = "aayushdubey101@example.com" }
+]
+keywords = ["mcp", "blender", "3d", "ai", "model-context-protocol", "animation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+]
+
+dependencies = [
+    "mcp[cli]>=1.3.0",
+    "pydantic>=2.6.0",
+    "anyio>=4.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.3.0",
+    "mypy>=1.9.0",
+    "black>=24.0.0",
+]
+
+[project.scripts]
+mcp-blender-bridge = "blender_bridge.server:main"
+
+[project.urls]
+Homepage = "https://github.com/Aayushdubey101/MCP-HUB"
+Repository = "https://github.com/Aayushdubey101/MCP-HUB"
+Issues = "https://github.com/Aayushdubey101/MCP-HUB/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/blender_bridge"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
