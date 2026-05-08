@@ -33,6 +33,17 @@ def handle_blender_error(exc: Exception) -> str:
     return format_error(f"Unexpected error ({type(exc).__name__}): {exc}")
 
 
+READ_ONLY_ERROR: str = format_error(
+    "Server is in read-only mode (BLENDER_BRIDGE_READ_ONLY=true). "
+    "This operation is disabled. Set BLENDER_BRIDGE_READ_ONLY=false to enable writes."
+)
+
+
+def check_read_only(read_only: bool) -> str | None:
+    """Return READ_ONLY_ERROR if read_only is True, else None."""
+    return READ_ONLY_ERROR if read_only else None
+
+
 def parse_blender_response(response: dict[str, Any]) -> Any:
     """Validate Blender's response envelope and return the inner result.
 

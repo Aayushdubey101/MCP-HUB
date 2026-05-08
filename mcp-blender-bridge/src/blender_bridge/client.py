@@ -2,6 +2,18 @@
 
 This module provides a thin client that sends JSON commands to a running
 Blender instance (via the companion Blender addon) and returns the response.
+
+Two modes:
+
+* **Per-call (default)** — open a new TCP connection for every command and
+  close it immediately. Simple, robust, slightly slower for chatty workloads.
+* **Persistent** — open one connection on first use and reuse it for all
+  subsequent commands. Faster (no TCP handshake per call) and matches the
+  way modern MCP clients tend to drive the bridge. Reconnects automatically
+  on broken pipe / reset, and serializes concurrent callers with a lock.
+
+Mode is selected via ``BlenderClient(persistent=True)`` or the
+``BLENDER_BRIDGE_PERSISTENT`` environment variable read in ``server.py``.
 """
 
 from __future__ import annotations
@@ -13,6 +25,8 @@ import logging
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+BRIDGE_PROTOCOL_VERSION = "1.0"
 
 # Default connection settings (overridable via environment variables / config)
 DEFAULT_HOST = "127.0.0.1"
@@ -43,10 +57,56 @@ class BlenderClient:
         host: str = DEFAULT_HOST,
         port: int = DEFAULT_PORT,
         timeout: float = DEFAULT_TIMEOUT,
+        *,
+        persistent: bool = False,
     ) -> None:
         self.host = host
         self.port = port
         self.timeout = timeout
+        self.persistent = persistent
+
+        # Persistent-mode state. Unused when persistent=False.
+        self._reader: asyncio.StreamReader | None = None
+        self._writer: asyncio.StreamWriter | None = None
+        self._lock = asyncio.Lock()
+
+    async def connect(self) -> None:
+        """Open the persistent connection. No-op in per-call mode or if already open."""
+        if not self.persistent:
+            return
+        if self._writer is not None and not self._writer.is_closing():
+            return
+        await self._open()
+
+    async def close(self) -> None:
+        """Close the persistent connection if one is open."""
+        await self._teardown()
+
+    async def _open(self) -> None:
+        try:
+            self._reader, self._writer = await asyncio.wait_for(
+                asyncio.open_connection(self.host, self.port),
+                timeout=self.timeout,
+            )
+        except (OSError, asyncio.TimeoutError) as e:
+            self._reader = None
+            self._writer = None
+            raise BlenderConnectionError(
+                f"Could not connect to Blender at {self.host}:{self.port}. "
+                f"Make sure Blender is running and the MCP-Blender-Bridge addon is "
+                f"enabled and started. Original error: {e}"
+            ) from e
+
+    async def _teardown(self) -> None:
+        writer = self._writer
+        self._reader = None
+        self._writer = None
+        if writer is None:
+            return
+        with contextlib.suppress(Exception):
+            writer.close()
+        with contextlib.suppress(Exception):
+            await writer.wait_closed()
 
     async def send_command(
         self,
@@ -69,6 +129,17 @@ class BlenderClient:
         Raises:
             BlenderConnectionError: If we cannot reach Blender or it returns an error.
         """
+        if self.persistent:
+            return await self._send_persistent(command, params, timeout=timeout)
+        return await self._send_per_call(command, params, timeout=timeout)
+
+    async def _send_per_call(
+        self,
+        command: str,
+        params: dict[str, Any] | None,
+        *,
+        timeout: float | None,
+    ) -> dict[str, Any]:
         t = timeout if timeout is not None else self.timeout
         payload = json.dumps({"command": command, "params": params or {}}) + "\n"
 
@@ -88,7 +159,6 @@ class BlenderClient:
             writer.write(payload.encode("utf-8"))
             await writer.drain()
 
-            # Read response (expects newline-delimited JSON)
             raw = await asyncio.wait_for(reader.readline(), timeout=t)
 
             if not raw:
@@ -112,10 +182,83 @@ class BlenderClient:
             with contextlib.suppress(Exception):
                 await writer.wait_closed()
 
+    async def _send_persistent(
+        self,
+        command: str,
+        params: dict[str, Any] | None,
+        *,
+        timeout: float | None,
+    ) -> dict[str, Any]:
+        t = timeout if timeout is not None else self.timeout
+        payload = json.dumps({"command": command, "params": params or {}}) + "\n"
+        encoded = payload.encode("utf-8")
+
+        async with self._lock:
+            for attempt in (0, 1):
+                if self._writer is None or self._writer.is_closing():
+                    await self._open()
+
+                assert self._reader is not None and self._writer is not None
+
+                try:
+                    self._writer.write(encoded)
+                    await asyncio.wait_for(self._writer.drain(), timeout=t)
+                    raw = await asyncio.wait_for(self._reader.readline(), timeout=t)
+                except (ConnectionResetError, BrokenPipeError, OSError) as e:
+                    logger.warning(
+                        "Persistent connection lost (%s) — reconnecting (attempt %d).",
+                        e,
+                        attempt + 1,
+                    )
+                    await self._teardown()
+                    if attempt == 0:
+                        continue
+                    raise BlenderConnectionError(
+                        f"Persistent connection to Blender at {self.host}:{self.port} "
+                        f"was lost and could not be reestablished. Original error: {e}"
+                    ) from e
+                except asyncio.TimeoutError as e:
+                    await self._teardown()
+                    raise BlenderConnectionError(
+                        f"Blender did not respond within {t}s. "
+                        "For renders, increase timeout_seconds in the tool parameters."
+                    ) from e
+
+                if not raw:
+                    await self._teardown()
+                    if attempt == 0:
+                        continue
+                    raise BlenderConnectionError(
+                        "Blender closed the connection without sending a response."
+                    )
+
+                try:
+                    response: dict[str, Any] = json.loads(raw.decode("utf-8").strip())
+                except json.JSONDecodeError as e:
+                    await self._teardown()
+                    raise BlenderConnectionError(
+                        f"Received invalid JSON from Blender: {e}"
+                    ) from e
+
+                return response
+
+            raise BlenderConnectionError("Unreachable: persistent send loop exited without response.")
+
     async def ping(self) -> bool:
         """Check whether Blender is reachable. Returns True if reachable."""
         try:
             response = await self.send_command("ping")
-            return bool(response.get("status") == "success")
+            if response.get("status") != "success":
+                return False
+            result = response.get("result", {})
+            addon_protocol = result.get("protocol_version") if isinstance(result, dict) else None
+            if addon_protocol and addon_protocol != BRIDGE_PROTOCOL_VERSION:
+                logger.warning(
+                    "Protocol version mismatch: server=%r addon=%r — "
+                    "update blender_addon/mcp_blender_bridge.py to match.",
+                    BRIDGE_PROTOCOL_VERSION,
+                    addon_protocol,
+                )
+            return True
         except BlenderConnectionError:
             return False
