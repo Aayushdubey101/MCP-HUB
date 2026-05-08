@@ -38,26 +38,34 @@ Claude via stdio; the Blender addon listens on TCP inside Blender's process.
 
 ```
 src/blender_bridge/
-├── server.py          # Entry point — registers tool groups, calls mcp.run()
-├── client.py          # BlenderClient — async TCP, one connection per command
-├── schemas.py         # All Pydantic input models (single source of truth)
-├── utils.py           # format_success / format_error / parse_blender_response
+├── server.py             # Entry point — env-var config, registers tool groups, mcp.run()
+├── client.py             # BlenderClient — async TCP, one connection per command
+├── schemas.py            # All Pydantic input models (single source of truth)
+├── utils.py              # format_success / format_error / parse_blender_response / check_read_only
+├── _log_formatter.py     # JsonFormatter — structured JSON log output
 └── tools/
-    ├── __init__.py    # Exports scene, objects, code modules
-    ├── scene.py       # 5 read-only tools (ping, scene info, list, object info, screenshot)
-    ├── objects.py     # 6 write tools (create, transform, delete, material, light, camera)
-    └── code.py        # 1 escape-hatch tool (execute_python)
+    ├── __init__.py       # Exports scene, objects, render, code modules
+    ├── scene.py          # 5 read-only tools (ping, scene info, list, object info, screenshot)
+    ├── objects.py        # 6 write tools (create, transform, delete, material, light, camera)
+    ├── render.py         # 1 render tool (render_image — inline PNG preview)
+    └── code.py           # 1 escape-hatch tool (execute_python)
 
 blender_addon/
 └── mcp_blender_bridge.py   # Single-file Blender addon (drag-and-drop install)
 
 tests/
-├── test_schemas.py    # 47 schema validation tests — no Blender required
-└── test_utils.py      # 12 utils tests — no Blender required
+├── test_schemas.py       # Schema validation (no Blender required)
+├── test_utils.py         # Utils + read-only helpers
+├── test_client.py        # Async TCP client (mocked asyncio)
+├── test_server_features.py  # JsonFormatter, env-var parsing
+├── test_tools_objects.py # 20 object tool tests
+├── test_tools_scene.py   # 18 scene tool tests
+├── test_tools_render.py  # 7 render tool tests
+└── test_tools_code.py    # 6 code tool tests
 ```
 
-Each `tools/*.py` exposes one function: `register(mcp, client)`. `server.py`
-calls all three. Adding a new tool group = add a file, call `register`.
+Each `tools/*.py` exposes one function: `register(mcp, client, *, read_only=False)`. `server.py`
+calls all four. Adding a new tool group = add a file, call `register`.
 
 ---
 
@@ -104,8 +112,7 @@ require reconnection logic, heartbeats, and state tracking. For v0.2.0 the
 overhead is negligible (loopback TCP). A `BlenderClientPool` keyed by
 `host:port` is planned for v0.3.0 when render-farm multi-instance support lands.
 
-**Timeout**: 30 s default, overridable via `BLENDER_BRIDGE_TIMEOUT` env var
-(planned v0.3.0). Competitor hardcodes 180 s with no way to shorten it.
+**Timeout**: 30 s default per command; render tool accepts `timeout_seconds` per-call (default 300 s, configurable up to 3600 s). Competitor hardcodes 180 s with no way to shorten it.
 
 ---
 
@@ -220,28 +227,63 @@ default-on telemetry. MCP-Blender-Bridge has nothing to disable.
 
 ## Comparison table
 
-| Dimension | `ahujasid/blender-mcp` v1.5.5 | `MCP-Blender-Bridge` v0.2.0 |
+| Dimension | `ahujasid/blender-mcp` v1.5.5 | `MCP-Blender-Bridge` v0.3.0 |
 |-----------|-------------------------------|------------------------------|
 | **Telemetry** | Default-on (Supabase) | Zero — no code exists |
 | **Input validation** | None (raw kwargs) | Pydantic v2, `extra="forbid"` |
 | **Tool annotations** | None | All 4 hints on every tool |
-| **Tests** | 0 | 59 (schemas + utils) |
+| **Tests** | 0 | 149 (89% coverage) |
 | **CI** | None | GitHub Actions, Python 3.10/3.11/3.12 |
 | **Async** | Synchronous `def` | `async def` throughout |
 | **Architecture** | 1 file × 1185 lines | Modular package, no file > 250 lines |
 | **Blender addon** | 1 file × 2635 lines | 1 file × ~430 lines |
 | **Hardcoded secrets** | `RODIN_FREE_TRIAL_KEY` in source | None — BYO keys via env vars |
 | **Error format** | English string `"Error: ..."` | Structured JSON `{"status":"error","message":"..."}` |
-| **Tool count** | 22 (heavy on 3rd-party AI gen) | 12 core + plugin-extensible |
+| **Tool count** | 22 (heavy on 3rd-party AI gen) | 14 core + plugin-extensible |
 | **Material tool** | None (buried in PolyHaven) | `blender_set_material` (Principled BSDF) |
 | **Light tool** | None | `blender_add_light` (POINT/SUN/SPOT/AREA) |
 | **Camera tool** | None | `blender_set_camera` (aim-at-target) |
 | **Viewport screenshot** | Yes | Yes (inline `Image` content) |
 | **Object inspection** | Yes | Yes (mesh/light/camera type-specific) |
-| **Render submission** | No | Planned v0.3.0 |
-| **Plugin architecture** | Baked-in integrations | Planned v0.3.0 (opt-in packages) |
-| **Docker / deploy** | No | Planned v0.3.0 |
-| **HTTP transport** | stdio only | Planned v0.3.0 |
+| **Render submission** | No | `blender_render_image` (EEVEE/CYCLES, inline preview) |
+| **Read-only mode** | No | `BLENDER_BRIDGE_READ_ONLY=true` disables all writes |
+| **Structured logging** | No | `BLENDER_BRIDGE_LOG_FORMAT=json` |
+| **Protocol versioning** | No | `BRIDGE_PROTOCOL_VERSION="1.0"` — mismatch warns on ping |
+| **Plugin architecture** | Baked-in integrations | Planned (opt-in packages) |
+| **HTTP transport** | stdio only | Planned |
+
+---
+
+## Read-only mode
+
+Set `BLENDER_BRIDGE_READ_ONLY=true` (or `1` or `yes`) to disable all destructive
+tools at startup. The server still registers them — they return an actionable error
+rather than being hidden — so tool discovery works normally.
+
+```python
+# utils.py — all destructive tools call this at the top of their handler
+if err := check_read_only(read_only):
+    return err  # {"status": "error", "message": "Server is in read-only mode..."}
+```
+
+Useful for: demo environments, CI pipelines that only need inspection tools,
+shared Blender instances where writes should be gated.
+
+---
+
+## Protocol versioning
+
+`BRIDGE_PROTOCOL_VERSION = "1.0"` is defined in both `client.py` and
+`blender_addon/mcp_blender_bridge.py`. On `blender_ping`, the addon returns the
+version it was built with:
+
+```json
+{"status": "success", "result": {"pong": true, "protocol_version": "1.0", ...}}
+```
+
+If the server's version ≠ addon's version, `blender_ping` returns an error
+directing the user to update the addon. Old addons that predate versioning return
+`"protocol_version": "legacy"` (treated as a soft warning, not a hard failure).
 
 ---
 
@@ -251,12 +293,9 @@ default-on telemetry. MCP-Blender-Bridge has nothing to disable.
 |----------|---------|--------|
 | `BLENDER_BRIDGE_HOST` | `127.0.0.1` | Blender addon TCP address |
 | `BLENDER_BRIDGE_PORT` | `9876` | Blender addon TCP port |
-| `BLENDER_BRIDGE_LOG_LEVEL` | `INFO` | Python logging level |
-
-Planned for v0.3.0:
-- `BLENDER_BRIDGE_TIMEOUT` — socket timeout (currently hardcoded 30 s)
-- `BLENDER_BRIDGE_LOG_FORMAT` — `json` for structured log output
-- `BLENDER_BRIDGE_READ_ONLY` — disable all `destructiveHint: true` tools
+| `BLENDER_BRIDGE_LOG_LEVEL` | `INFO` | Python logging level (`DEBUG`/`INFO`/`WARNING`/`ERROR`) |
+| `BLENDER_BRIDGE_LOG_FORMAT` | `text` | Set to `json` for structured log output (log aggregators, CI) |
+| `BLENDER_BRIDGE_READ_ONLY` | `false` | Set to `true`/`1`/`yes` — disables all destructive tools |
 
 ---
 

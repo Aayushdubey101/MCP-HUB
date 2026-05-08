@@ -14,7 +14,7 @@ named functions rather than split across modules.
 bl_info = {
     "name": "MCP Blender Bridge",
     "author": "Aayush Dubey",
-    "version": (0, 2, 0),
+    "version": (0, 3, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > MCP",
     "description": "Bridge Blender to AI assistants via the Model Context Protocol",
@@ -35,6 +35,8 @@ from typing import Any
 
 import bpy
 
+BRIDGE_PROTOCOL_VERSION = "1.0"
+
 # ---------------------------------------------------------------------------
 # Global server state
 # ---------------------------------------------------------------------------
@@ -50,7 +52,12 @@ _command_queue: "queue.Queue[tuple[Any, ...]]" = queue.Queue()
 
 
 def cmd_ping(params: dict[str, Any]) -> dict[str, Any]:
-    return {"pong": True, "blender_version": bpy.app.version_string, "bridge_version": "0.2.0"}
+    return {
+        "pong": True,
+        "blender_version": bpy.app.version_string,
+        "bridge_version": "0.3.0",
+        "protocol_version": BRIDGE_PROTOCOL_VERSION,
+    }
 
 
 def cmd_get_scene_info(params: dict[str, Any]) -> dict[str, Any]:
@@ -519,35 +526,61 @@ def _drain_command_queue() -> float:
 
 
 def _handle_client(conn: socket.socket) -> None:
-    """Handle one client connection: read one command, send one response."""
+    """Handle one client connection. Reads newline-delimited JSON commands in a loop
+    until the client closes the connection. Supports both per-call clients (which
+    send one command and close) and persistent clients (which keep the socket open).
+    """
     try:
         with conn:
             buf = b""
-            while b"\n" not in buf:
-                chunk = conn.recv(4096)
-                if not chunk:
-                    return
-                buf += chunk
+            while True:
+                # Pull bytes until we have at least one complete line
+                while b"\n" not in buf:
+                    try:
+                        chunk = conn.recv(4096)
+                    except (ConnectionResetError, OSError):
+                        return
+                    if not chunk:
+                        return  # client closed
+                    buf += chunk
 
-            line, _, _ = buf.partition(b"\n")
-            request = json.loads(line.decode("utf-8"))
-            command = request.get("command")
-            params = request.get("params") or {}
+                line, _, buf = buf.partition(b"\n")
+                if not line.strip():
+                    continue
 
-            handler = COMMAND_HANDLERS.get(command)
-            if handler is None:
-                response: dict[str, Any] = {"status": "error", "message": f"Unknown command: {command!r}"}
-            else:
-                response_holder: dict[str, Any] = {}
-                done_event = threading.Event()
-                _command_queue.put((handler, params, response_holder, done_event))
-                done_event.wait(timeout=60.0)
-                response = response_holder.get(
-                    "response",
-                    {"status": "error", "message": "Command timed out on Blender main thread."},
-                )
+                try:
+                    request = json.loads(line.decode("utf-8"))
+                except json.JSONDecodeError as e:
+                    err_resp = {"status": "error", "message": f"Invalid JSON: {e}"}
+                    try:
+                        conn.sendall((json.dumps(err_resp) + "\n").encode("utf-8"))
+                    except OSError:
+                        return
+                    continue
 
-            conn.sendall((json.dumps(response) + "\n").encode("utf-8"))
+                command = request.get("command")
+                params = request.get("params") or {}
+
+                handler = COMMAND_HANDLERS.get(command)
+                if handler is None:
+                    response: dict[str, Any] = {
+                        "status": "error",
+                        "message": f"Unknown command: {command!r}",
+                    }
+                else:
+                    response_holder: dict[str, Any] = {}
+                    done_event = threading.Event()
+                    _command_queue.put((handler, params, response_holder, done_event))
+                    done_event.wait(timeout=60.0)
+                    response = response_holder.get(
+                        "response",
+                        {"status": "error", "message": "Command timed out on Blender main thread."},
+                    )
+
+                try:
+                    conn.sendall((json.dumps(response) + "\n").encode("utf-8"))
+                except OSError:
+                    return  # client gone
     except Exception as e:  # noqa: BLE001
         try:
             err = {"status": "error", "message": f"Server error: {type(e).__name__}: {e}"}
@@ -632,7 +665,7 @@ class MCP_OT_StopServer(bpy.types.Operator):
 
 
 class MCP_PT_Panel(bpy.types.Panel):
-    bl_label = "MCP Blender Bridge v0.2.0"
+    bl_label = "MCP Blender Bridge v0.3.0"
     bl_idname = "MCP_PT_panel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"

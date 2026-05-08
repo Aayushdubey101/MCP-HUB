@@ -1,6 +1,6 @@
 [project]
 name = "mcp-blender-bridge"
-version = "0.2.0"
+version = "0.3.0"
 description = "Production-grade Blender MCP server — zero telemetry, Pydantic-validated, async-native, plugin-extensible"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -67,3 +67,8 @@ warn_unused_configs = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest-cov>=7.1.0",
+]
