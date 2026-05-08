@@ -7,7 +7,7 @@ import logging
 
 from mcp.server.fastmcp import FastMCP, Image
 
-from ..client import BlenderClient
+from ..client import BRIDGE_PROTOCOL_VERSION, BlenderClient
 from ..schemas import (
     GetObjectInfoInput,
     GetSceneInfoInput,
@@ -43,12 +43,23 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
             blender_ping() → {"status": "success", "result": {"reachable": true}}
         """
         try:
-            ok = await client.ping()
-            if ok:
-                return format_success({"reachable": True}, message="Blender bridge is online.")
-            return format_error(
-                "Blender bridge not responding. Open Blender, install the addon, "
-                "and start the bridge server from the MCP tab in the 3D View N-panel."
+            response = await client.send_command("ping")
+            result = parse_blender_response(response)
+            addon_protocol = result.get("protocol_version") if isinstance(result, dict) else None
+            if addon_protocol and addon_protocol != BRIDGE_PROTOCOL_VERSION:
+                return format_error(
+                    f"Protocol version mismatch: server={BRIDGE_PROTOCOL_VERSION!r}, "
+                    f"addon={addon_protocol!r}. "
+                    "Update blender_addon/mcp_blender_bridge.py to the latest version."
+                )
+            return format_success(
+                {
+                    "reachable": True,
+                    "blender_version": result.get("blender_version") if isinstance(result, dict) else None,
+                    "bridge_version": result.get("bridge_version") if isinstance(result, dict) else None,
+                    "protocol_version": addon_protocol or "legacy",
+                },
+                message="Blender bridge is online.",
             )
         except Exception as exc:  # noqa: BLE001
             return handle_blender_error(exc)
@@ -227,7 +238,7 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
         name="blender_get_viewport_screenshot",
         annotations={**_ANNOTATIONS_RO, "title": "Get Viewport Screenshot"},
     )
-    async def blender_get_viewport_screenshot(params: ViewportScreenshotInput) -> Image | str:
+    async def blender_get_viewport_screenshot(params: ViewportScreenshotInput):  # noqa: ANN201  # Image | str — FastMCP handles Image at runtime
         """Capture a screenshot of the current Blender 3D viewport.
 
         Renders using OpenGL and returns the image inline. Great for inspecting

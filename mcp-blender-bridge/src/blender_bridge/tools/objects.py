@@ -15,12 +15,12 @@ from ..schemas import (
     SetMaterialInput,
     TransformObjectInput,
 )
-from ..utils import format_error, format_success, handle_blender_error, parse_blender_response
+from ..utils import check_read_only, format_error, format_success, handle_blender_error, parse_blender_response
 
 logger = logging.getLogger(__name__)
 
 
-def register(mcp: FastMCP, client: BlenderClient) -> None:
+def register(mcp: FastMCP, client: BlenderClient, *, read_only: bool = False) -> None:
     """Register all object manipulation tools."""
 
     @mcp.tool(
@@ -46,6 +46,8 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
         Example:
             blender_create_primitive(primitive_type="cube", name="MyCube", location=(0,0,1))
         """
+        if err := check_read_only(read_only):
+            return err
         try:
             response = await client.send_command(
                 "create_primitive",
@@ -90,6 +92,8 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
         Example:
             blender_transform_object(name="Cube", location=(1,0,0), scale=(2,2,2))
         """
+        if err := check_read_only(read_only):
+            return err
         if all(v is None for v in (params.location, params.rotation_euler, params.scale)):
             return format_error(
                 "No transform values provided. Specify at least one of: "
@@ -138,6 +142,8 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
         Example:
             blender_delete_object(name="Cube")
         """
+        if err := check_read_only(read_only):
+            return err
         try:
             response = await client.send_command(
                 "delete_object",
@@ -174,6 +180,8 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
         Example:
             blender_set_material(object_name="Cube", color=(0.2, 0.4, 0.8, 1.0), metallic=0.9)
         """
+        if err := check_read_only(read_only):
+            return err
         try:
             response = await client.send_command(
                 "set_material",
@@ -221,6 +229,8 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
         Example:
             blender_add_light(light_type="POINT", location=(0, 0, 4), energy=2000)
         """
+        if err := check_read_only(read_only):
+            return err
         try:
             response = await client.send_command(
                 "add_light",
@@ -270,6 +280,8 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
         Example:
             blender_set_camera(location=(5, -5, 3), target=(0, 0, 0), lens=50)
         """
+        if err := check_read_only(read_only):
+            return err
         try:
             response = await client.send_command(
                 "set_camera",

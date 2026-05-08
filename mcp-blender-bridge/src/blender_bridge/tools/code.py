@@ -8,12 +8,12 @@ from mcp.server.fastmcp import FastMCP
 
 from ..client import BlenderClient
 from ..schemas import ExecutePythonInput
-from ..utils import format_success, handle_blender_error, parse_blender_response
+from ..utils import check_read_only, format_success, handle_blender_error, parse_blender_response
 
 logger = logging.getLogger(__name__)
 
 
-def register(mcp: FastMCP, client: BlenderClient) -> None:
+def register(mcp: FastMCP, client: BlenderClient, *, read_only: bool = False) -> None:
     """Register the Python execution escape-hatch tool."""
 
     @mcp.tool(
@@ -43,6 +43,8 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
         Example:
             code = "result = [obj.name for obj in bpy.data.objects if obj.type == 'MESH']"
         """
+        if err := check_read_only(read_only):
+            return err
         try:
             response = await client.send_command(
                 "execute_python",

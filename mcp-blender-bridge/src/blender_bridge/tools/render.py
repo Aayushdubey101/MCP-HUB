@@ -9,12 +9,12 @@ from mcp.server.fastmcp import FastMCP, Image
 
 from ..client import BlenderClient
 from ..schemas import RenderImageInput
-from ..utils import handle_blender_error, parse_blender_response
+from ..utils import check_read_only, handle_blender_error, parse_blender_response
 
 logger = logging.getLogger(__name__)
 
 
-def register(mcp: FastMCP, client: BlenderClient) -> None:
+def register(mcp: FastMCP, client: BlenderClient, *, read_only: bool = False) -> None:
     """Register the render submission tool."""
 
     @mcp.tool(
@@ -27,7 +27,7 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
             "openWorldHint": False,
         },
     )
-    async def blender_render_image(params: RenderImageInput) -> list[str | Image]:
+    async def blender_render_image(params: RenderImageInput):  # noqa: ANN201  # list[str | Image] — FastMCP handles Image at runtime
         """Render a frame using Blender's render engine and return the result inline.
 
         Blocks until the render is complete. For fast previews use EEVEE; for
@@ -47,6 +47,8 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
             blender_render_image(engine="BLENDER_EEVEE", frame=1, max_preview_size=512)
             blender_render_image(engine="CYCLES", samples=64, timeout_seconds=600)
         """
+        if err := check_read_only(read_only):
+            return [err]
         try:
             response = await client.send_command(
                 "render_image",
