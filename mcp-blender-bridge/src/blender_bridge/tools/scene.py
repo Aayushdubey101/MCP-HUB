@@ -55,8 +55,12 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
             return format_success(
                 {
                     "reachable": True,
-                    "blender_version": result.get("blender_version") if isinstance(result, dict) else None,
-                    "bridge_version": result.get("bridge_version") if isinstance(result, dict) else None,
+                    "blender_version": result.get("blender_version")
+                    if isinstance(result, dict)
+                    else None,
+                    "bridge_version": result.get("bridge_version")
+                    if isinstance(result, dict)
+                    else None,
                     "protocol_version": addon_protocol or "legacy",
                 },
                 message="Blender bridge is online.",

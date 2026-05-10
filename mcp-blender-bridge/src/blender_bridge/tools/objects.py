@@ -15,7 +15,13 @@ from ..schemas import (
     SetMaterialInput,
     TransformObjectInput,
 )
-from ..utils import check_read_only, format_error, format_success, handle_blender_error, parse_blender_response
+from ..utils import (
+    check_read_only,
+    format_error,
+    format_success,
+    handle_blender_error,
+    parse_blender_response,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -191,7 +197,9 @@ def register(mcp: FastMCP, client: BlenderClient, *, read_only: bool = False) ->
                     "metallic": params.metallic,
                     "roughness": params.roughness,
                     "material_name": params.material_name,
-                    "emission_color": list(params.emission_color) if params.emission_color else None,
+                    "emission_color": list(params.emission_color)
+                    if params.emission_color
+                    else None,
                     "emission_strength": params.emission_strength,
                 },
             )

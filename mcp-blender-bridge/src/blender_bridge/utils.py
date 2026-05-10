@@ -50,7 +50,5 @@ def parse_blender_response(response: dict[str, Any]) -> Any:
     Raises BlenderConnectionError if the response indicates failure.
     """
     if response.get("status") != "success":
-        raise BlenderConnectionError(
-            response.get("message", "Blender returned an unknown error.")
-        )
+        raise BlenderConnectionError(response.get("message", "Blender returned an unknown error."))
     return response.get("result")
