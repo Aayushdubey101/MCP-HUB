@@ -1,5 +1,45 @@
-# Ignore workspace competitive intelligence and agent files
+# ── Workspace strategy / agent files (private) ─────────────────────────────
 .competitive-intel/
 .competitor-intel/
 AGENTS.md
 CLAUDE.md
+
+# ── Claude Code / IDE / AI tool state ──────────────────────────────────────
+.claude/
+.aider*
+.cursor*
+.continue/
+.windsurf/
+.mypy_cache
+.ruff_cache
+.pytest_cache
+
+# ── Internal handoff / scratch notes (per-plugin and root) ────────────────
+HANDOFF_REPORT.md
+TASK.md
+prompt.md
+
+# ── External vendor sources (cloned for reference, not shipped) ───────────
+external/
+
+# ── OS cruft ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+$RECYCLE.BIN/
+
+# ── Editor swap / backup ──────────────────────────────────────────────────
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# ── Node (in case any tooling drops it) ───────────────────────────────────
+node_modules/
+
+# ── Local env overrides (root-level) ──────────────────────────────────────
+.env
+.env.local
+*.local.json

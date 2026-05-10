@@ -69,3 +69,90 @@ temp/
 
 .python-version
 
+# Claude Code / AI tool state
+.claude/
+.aider*
+.cursor*
+.continue/
+.windsurf/
+
+# Internal handoff / scratch (not shipped)
+HANDOFF_REPORT.md
+TASK.md
+prompt.md
+
+# OS cruft
+Thumbs.db
+desktop.ini
+ehthumbs.db
+$RECYCLE.BIN/
+
+# Coverage artifacts
+coverage.xml
+.coverage.*
+htmlcov/
+
+# Build / packaging
+*.whl
+*.tar.gz
+
+# Plugin .venv (each plugin has its own)
+plugins/*/.venv/
+plugins/*/.pytest_cache/
+plugins/*/.ruff_cache/
+plugins/*/.mypy_cache/
+plugins/*/htmlcov/
+plugins/*/.coverage
+
+# Node (in case any tooling drops it)
+node_modules/
+
+# JetBrains workspace
+*.iml
+.idea/workspace.xml
+.idea/tasks.xml
+
+# Sphinx / mkdocs build
+docs/_build/
+site/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Type checkers (extra)
+.pyright/
+.pyre/
+.pytype/
+
+# Security scan reports
+bandit-report.*
+safety-report.*
+
+# Profiling
+*.prof
+*.cprof
+*.lprof
+
+# Local debug DBs / dumps
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+
+# Backup / merge cruft
+*.bak
+*.orig
+*.rej
+*.tmp
+
+# Translation cache
+*.mo
+*.pot
+
+# not nessecery files
+CLAUDE.md
+HANDOFF_REPORT.md
+TASK.md
+prompt.md
+CHANGELOG.md
