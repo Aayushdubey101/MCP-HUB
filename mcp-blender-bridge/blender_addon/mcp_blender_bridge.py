@@ -14,7 +14,7 @@ named functions rather than split across modules.
 bl_info = {
     "name": "MCP Blender Bridge",
     "author": "Aayush Dubey",
-    "version": (0, 3, 0),
+    "version": (0, 4, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > MCP",
     "description": "Bridge Blender to AI assistants via the Model Context Protocol",
@@ -55,7 +55,7 @@ def cmd_ping(params: dict[str, Any]) -> dict[str, Any]:
     return {
         "pong": True,
         "blender_version": bpy.app.version_string,
-        "bridge_version": "0.3.0",
+        "bridge_version": "0.4.0",
         "protocol_version": BRIDGE_PROTOCOL_VERSION,
     }
 
@@ -477,6 +477,133 @@ def cmd_execute_python(params: dict[str, Any]) -> dict[str, Any]:
         return {"result": repr(result)}
 
 
+def cmd_apply_polyhaven_texture(params: dict[str, Any]) -> dict[str, Any]:
+    object_name = params["object_name"]
+    asset_id = params["asset_id"]
+    maps = params.get("maps", {})
+    
+    obj = bpy.data.objects.get(object_name)
+    if obj is None:
+        raise ValueError(f"Object '{object_name}' not found in scene.")
+        
+    mat_name = f"PolyHaven_{asset_id}"
+    mat = bpy.data.materials.get(mat_name) or bpy.data.materials.new(name=mat_name)
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    
+    nodes.clear()
+    
+    bsdf = nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.location = (0, 0)
+    
+    output = nodes.new("ShaderNodeOutputMaterial")
+    output.location = (300, 0)
+    
+    links.new(bsdf.outputs["BSDF"], output.inputs["Surface"])
+    
+    y_offset = 200
+    if "diffuse" in maps:
+        img = bpy.data.images.load(maps["diffuse"])
+        node = nodes.new("ShaderNodeTexImage")
+        node.image = img
+        node.location = (-300, y_offset)
+        links.new(node.outputs["Color"], bsdf.inputs["Base Color"])
+        y_offset -= 300
+        
+    if "roughness" in maps:
+        img = bpy.data.images.load(maps["roughness"])
+        img.colorspace_settings.name = "Non-Color"
+        node = nodes.new("ShaderNodeTexImage")
+        node.image = img
+        node.location = (-300, y_offset)
+        links.new(node.outputs["Color"], bsdf.inputs["Roughness"])
+        y_offset -= 300
+        
+    if "normal" in maps:
+        img = bpy.data.images.load(maps["normal"])
+        img.colorspace_settings.name = "Non-Color"
+        img_node = nodes.new("ShaderNodeTexImage")
+        img_node.image = img
+        img_node.location = (-600, y_offset)
+        
+        normal_map_node = nodes.new("ShaderNodeNormalMap")
+        normal_map_node.location = (-300, y_offset)
+        
+        links.new(img_node.outputs["Color"], normal_map_node.inputs["Color"])
+        if "Normal" in bsdf.inputs:
+            links.new(normal_map_node.outputs["Normal"], bsdf.inputs["Normal"])
+            
+    if obj.data.materials:
+        obj.data.materials[0] = mat
+    else:
+        obj.data.materials.append(mat)
+        
+    return {"object": object_name, "material": mat.name}
+
+
+
+# ---------------------------------------------------------------------------
+# 3D model import command handler (used by hyper3d_import and future plugins)
+# ---------------------------------------------------------------------------
+
+
+def cmd_import_3d_model(params: dict[str, Any]) -> dict[str, Any]:
+    """Import a 3D model file into the active Blender scene.
+
+    Supported formats: GLB/GLTF, FBX, OBJ, STL.
+
+    Parameters
+    ----------
+    params : dict
+        file_path     : str  — absolute path to the model file (required)
+        object_name   : str | None — optional name for the imported object
+        import_format : str — one of 'glb', 'fbx', 'obj', 'stl' (inferred
+                         from file extension when omitted)
+    """
+    file_path: str = params["file_path"]
+    object_name: str | None = params.get("object_name")
+    import_format: str = (
+        params.get("import_format") or file_path.rsplit(".", 1)[-1]
+    ).lower()
+
+    # Record which objects exist before the import
+    before: set[str] = {o.name for o in bpy.data.objects}
+
+    if import_format in ("glb", "gltf"):
+        bpy.ops.import_scene.gltf(filepath=file_path)
+    elif import_format == "fbx":
+        bpy.ops.import_scene.fbx(filepath=file_path)
+    elif import_format == "obj":
+        # Blender 3.x uses the legacy importer; 4.x has a new one — try both
+        try:
+            bpy.ops.wm.obj_import(filepath=file_path)
+        except AttributeError:
+            bpy.ops.import_scene.obj(filepath=file_path)
+    elif import_format == "stl":
+        try:
+            bpy.ops.wm.stl_import(filepath=file_path)
+        except AttributeError:
+            bpy.ops.import_mesh.stl(filepath=file_path)
+    else:
+        raise ValueError(f"Unsupported import format: '{import_format}'")
+
+    after: set[str] = {o.name for o in bpy.data.objects}
+    new_objects: list[str] = sorted(after - before)
+
+    # Optionally rename the first imported object
+    if object_name and new_objects:
+        first_obj = bpy.data.objects[new_objects[0]]
+        first_obj.name = object_name
+        new_objects[0] = object_name
+
+    return {
+        "file_path": file_path,
+        "import_format": import_format,
+        "imported_objects": new_objects,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Command dispatch table
 # ---------------------------------------------------------------------------
@@ -494,6 +621,8 @@ COMMAND_HANDLERS: dict[str, Any] = {
     "add_light": cmd_add_light,
     "set_camera": cmd_set_camera,
     "execute_python": cmd_execute_python,
+    "apply_polyhaven_texture": cmd_apply_polyhaven_texture,
+    "import_3d_model": cmd_import_3d_model,
 }
 
 
@@ -665,7 +794,7 @@ class MCP_OT_StopServer(bpy.types.Operator):
 
 
 class MCP_PT_Panel(bpy.types.Panel):
-    bl_label = "MCP Blender Bridge v0.3.0"
+    bl_label = "MCP Blender Bridge v0.4.0"
     bl_idname = "MCP_PT_panel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
