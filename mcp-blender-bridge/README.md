@@ -7,7 +7,7 @@
 
 [![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)]()
-[![Tests](https://img.shields.io/badge/tests-149%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-268%20passing-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-89%25-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)]()
 [![uv](https://img.shields.io/badge/managed%20by-uv-purple.svg)](https://docs.astral.sh/uv/)
@@ -64,10 +64,9 @@ to you, this is the one to use.
 
 ## Tools (v0.3.0)
 
-13 first-class tools, each with Pydantic-validated input and full MCP
-annotations.
+### Core — 13 tools, all Pydantic-validated with full MCP annotations
 
-### Inspection (read-only)
+#### Inspection (read-only)
 
 | Tool | Purpose |
 |------|---------|
@@ -77,7 +76,7 @@ annotations.
 | `blender_get_object_info` | Full per-object detail (transform, dimensions, materials, mesh/light/camera specifics) |
 | `blender_get_viewport_screenshot` | Inline PNG of the active viewport |
 
-### Authoring (destructive — disabled in read-only mode)
+#### Authoring (destructive — disabled in read-only mode)
 
 | Tool | Purpose |
 |------|---------|
@@ -89,6 +88,56 @@ annotations.
 | `blender_set_camera` | Location, aim target, focal length, set-active |
 | `blender_render_image` | Render a frame; returns metadata + inline PNG preview |
 | `blender_execute_python` | Power-user escape hatch (`bpy` available, set `result` to return) |
+
+### Plugins — opt-in, separately installable
+
+Each plugin is a pip package that registers additional tools via the entry-point
+system. Install only what you need. All require **zero** pre-configured secrets
+at server startup — keys are checked at *call time*, so the server always boots
+cleanly.
+
+#### `mcp-blender-bridge-polyhaven` (free, no key needed)
+
+| Tool | Purpose |
+|------|---------|
+| `polyhaven_status` | Check plugin status and cache directory |
+| `polyhaven_categories` | List asset categories (hdris / textures / models) |
+| `polyhaven_search` | Search PolyHaven's library |
+| `polyhaven_download` | Download an asset to local cache |
+| `polyhaven_apply_texture` | Download + apply texture to an object in Blender |
+
+```bash
+pip install mcp-blender-bridge-polyhaven
+```
+
+#### `mcp-blender-bridge-hyper3d` (requires `HYPER3D_API_KEY`)
+
+| Tool | Purpose |
+|------|---------|
+| `hyper3d_status` | Check plugin status and API key configuration |
+| `hyper3d_generate_text` | Text → 3D model via Rodin API |
+| `hyper3d_generate_image` | Image → 3D model (URL or local file) |
+| `hyper3d_poll` | Poll generation status with exponential backoff |
+| `hyper3d_import` | Poll + download + import GLTF/FBX/OBJ/STL into Blender |
+
+```bash
+pip install mcp-blender-bridge-hyper3d
+export HYPER3D_API_KEY="your-key"  # https://hyper3d.ai
+```
+
+#### `mcp-blender-bridge-sketchfab` (requires `SKETCHFAB_API_KEY` for downloads)
+
+| Tool | Purpose |
+|------|---------|
+| `sketchfab_status` | Check plugin status and API key configuration |
+| `sketchfab_search` | Search Sketchfab's 3D model library by keyword |
+| `sketchfab_preview` | Get full metadata for a model by UID |
+| `sketchfab_download` | Download GLTF + import into Blender |
+
+```bash
+pip install mcp-blender-bridge-sketchfab
+export SKETCHFAB_API_KEY="your-token"  # https://sketchfab.com/settings#password
+```
 
 ---
 
@@ -281,11 +330,12 @@ inside the container). On Linux the compose file already maps
 ```
 mcp-blender-bridge/
 ├── src/blender_bridge/
-│   ├── server.py              # MCP entry point; env-var configuration
-│   ├── client.py              # Async TCP client + protocol versioning
+│   ├── server.py              # MCP entry point; transport (stdio / http / sse)
+│   ├── client.py              # Async TCP client, per-call + persistent modes
 │   ├── schemas.py             # Pydantic v2 input models
 │   ├── utils.py               # format_error / format_success / read-only guard
-│   ├── _log_formatter.py      # JSON log formatter (separate to avoid import-time setup)
+│   ├── plugins/               # Plugin loader + BlenderBridgePlugin Protocol
+│   ├── _log_formatter.py      # JSON log formatter
 │   └── tools/
 │       ├── scene.py           # 5 read-only tools
 │       ├── objects.py         # 6 destructive object/material/light/camera tools
@@ -293,7 +343,11 @@ mcp-blender-bridge/
 │       └── code.py            # blender_execute_python (escape hatch)
 ├── blender_addon/
 │   └── mcp_blender_bridge.py  # Install this in Blender
-├── tests/                     # 149 tests, 89% coverage
+├── plugins/
+│   ├── polyhaven/             # pip install mcp-blender-bridge-polyhaven
+│   ├── hyper3d/               # pip install mcp-blender-bridge-hyper3d
+│   └── sketchfab/             # pip install mcp-blender-bridge-sketchfab
+├── tests/                     # 176 core tests, 89% coverage
 ├── docs/
 │   └── ARCHITECTURE.md        # Process model, threading, response shape, extensibility
 ├── examples/
@@ -315,11 +369,16 @@ For deeper internals see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ```bash
 uv sync --extra dev          # install dev deps
-uv run pytest                # 149 tests, ~2s
+uv run pytest                # 176 core tests, ~2s
 uv run pytest --cov=src      # with coverage
 uv run ruff check src/       # lint
 uv run ruff format src/      # format
 uv run mypy src/             # type-check
+
+# Run plugin tests
+uv run pytest plugins/polyhaven/tests/    # 15 tests
+uv run pytest plugins/hyper3d/tests/     # 44 tests
+uv run pytest plugins/sketchfab/tests/   # 33 tests
 ```
 
 CI runs the same matrix on every push (Python 3.10 / 3.11 / 3.12).
@@ -330,10 +389,9 @@ CI runs the same matrix on every push (Python 3.10 / 3.11 / 3.12).
 
 The full plan lives in [`TASK.md`](TASK.md). High level:
 
-- **v0.4.0** — Persistent socket + reconnect, plugin loader, PolyHaven plugin.
-- **v0.5.0** — Hyper3D Rodin plugin (BYO key), Sketchfab plugin, streamable HTTP transport.
-- **v0.6.0** — Headless / `--background` Blender control, asset cache.
-- **v1.0.0** — All 22 competitor tools matched (core + plugins), comparison-table green on every row.
+- **v0.3.0** ✅ — Plugin architecture, PolyHaven + Hyper3D + Sketchfab plugins, persistent connection, HTTP transport.
+- **v0.4.0** — SHA256 asset cache, headless `--background` Blender control.
+- **v1.0.0** — Final polish, architecture diagram, full comparison table green on every row.
 
 ---
 

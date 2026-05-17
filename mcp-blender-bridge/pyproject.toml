@@ -36,9 +36,22 @@ dev = [
     "mypy>=1.9.0",
     "black>=24.0.0",
 ]
+plugins = [
+    "mcp-blender-bridge-polyhaven",
+    "mcp-blender-bridge-hyper3d",
+    "mcp-blender-bridge-sketchfab",
+]
 
 [project.scripts]
 mcp-blender-bridge = "blender_bridge.server:main"
+
+[tool.uv.workspace]
+members = ["plugins/polyhaven", "plugins/hyper3d", "plugins/sketchfab"]
+
+[tool.uv.sources]
+mcp-blender-bridge-polyhaven = { workspace = true }
+mcp-blender-bridge-hyper3d = { workspace = true }
+mcp-blender-bridge-sketchfab = { workspace = true }
 
 [project.urls]
 Homepage = "https://github.com/Aayushdubey101/MCP-HUB"
