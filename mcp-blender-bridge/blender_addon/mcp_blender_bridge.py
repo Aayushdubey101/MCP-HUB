@@ -620,6 +620,7 @@ COMMAND_HANDLERS: dict[str, Any] = {
     "set_material": cmd_set_material,
     "add_light": cmd_add_light,
     "set_camera": cmd_set_camera,
+    "render_image": cmd_render_image,
     "execute_python": cmd_execute_python,
     "apply_polyhaven_texture": cmd_apply_polyhaven_texture,
     "import_3d_model": cmd_import_3d_model,

@@ -174,9 +174,7 @@ class BlenderClient:
                 "For renders, increase timeout_seconds in the tool parameters."
             ) from e
         except json.JSONDecodeError as e:
-            raise BlenderConnectionError(
-                f"Received invalid JSON from Blender: {e}"
-            ) from e
+            raise BlenderConnectionError(f"Received invalid JSON from Blender: {e}") from e
         finally:
             writer.close()
             with contextlib.suppress(Exception):
@@ -236,13 +234,13 @@ class BlenderClient:
                     response: dict[str, Any] = json.loads(raw.decode("utf-8").strip())
                 except json.JSONDecodeError as e:
                     await self._teardown()
-                    raise BlenderConnectionError(
-                        f"Received invalid JSON from Blender: {e}"
-                    ) from e
+                    raise BlenderConnectionError(f"Received invalid JSON from Blender: {e}") from e
 
                 return response
 
-            raise BlenderConnectionError("Unreachable: persistent send loop exited without response.")
+            raise BlenderConnectionError(
+                "Unreachable: persistent send loop exited without response."
+            )
 
     async def ping(self) -> bool:
         """Check whether Blender is reachable. Returns True if reachable."""
