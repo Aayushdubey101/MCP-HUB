@@ -19,6 +19,8 @@ from blender_bridge.schemas import (
     LightType,
     ListObjectsInput,
     PrimitiveType,
+    RenderEngine,
+    RenderImageInput,
     ResponseFormat,
     SetCameraInput,
     SetMaterialInput,
@@ -327,3 +329,81 @@ class TestExecutePythonInput:
     def test_code_too_long(self):
         with pytest.raises(ValidationError):
             ExecutePythonInput(code="x" * 20_001)
+
+
+# ---------------------------------------------------------------------------
+# RenderImageInput
+# ---------------------------------------------------------------------------
+
+
+class TestRenderImageInput:
+    def test_defaults(self):
+        p = RenderImageInput()
+        assert p.frame is None
+        assert p.output_path is None
+        assert p.engine is None
+        assert p.samples is None
+        assert p.max_preview_size == 512
+        assert p.timeout_seconds == 300.0
+
+    def test_valid_full(self):
+        p = RenderImageInput(
+            frame=10,
+            engine="CYCLES",
+            samples=128,
+            max_preview_size=1024,
+            timeout_seconds=600.0,
+        )
+        assert p.frame == 10
+        assert p.engine == RenderEngine.CYCLES
+        assert p.samples == 128
+        assert p.max_preview_size == 1024
+        assert p.timeout_seconds == 600.0
+
+    def test_eevee_engine(self):
+        p = RenderImageInput(engine="BLENDER_EEVEE")
+        assert p.engine == RenderEngine.EEVEE
+
+    def test_eevee_next_engine(self):
+        p = RenderImageInput(engine="BLENDER_EEVEE_NEXT")
+        assert p.engine == RenderEngine.EEVEE_NEXT
+
+    def test_invalid_engine(self):
+        with pytest.raises(ValidationError):
+            RenderImageInput(engine="INVALID_ENGINE")
+
+    def test_frame_zero_valid(self):
+        p = RenderImageInput(frame=0)
+        assert p.frame == 0
+
+    def test_frame_negative_invalid(self):
+        with pytest.raises(ValidationError):
+            RenderImageInput(frame=-1)
+
+    def test_samples_minimum(self):
+        p = RenderImageInput(samples=1)
+        assert p.samples == 1
+
+    def test_samples_zero_invalid(self):
+        with pytest.raises(ValidationError):
+            RenderImageInput(samples=0)
+
+    def test_max_preview_too_small(self):
+        with pytest.raises(ValidationError):
+            RenderImageInput(max_preview_size=63)
+
+    def test_max_preview_too_large(self):
+        with pytest.raises(ValidationError):
+            RenderImageInput(max_preview_size=2049)
+
+    def test_timeout_too_short(self):
+        with pytest.raises(ValidationError):
+            RenderImageInput(timeout_seconds=9.9)
+
+    def test_timeout_too_long(self):
+        with pytest.raises(ValidationError):
+            RenderImageInput(timeout_seconds=3601.0)
+
+    def test_extra_fields_forbidden(self):
+        with pytest.raises(ValidationError):
+            RenderImageInput(unknown_field="x")
