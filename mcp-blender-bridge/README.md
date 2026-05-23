@@ -5,10 +5,10 @@
 >
 > Part of the [MCP-HUB](../README.md) project.
 
-[![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.4.1-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)]()
-[![Tests](https://img.shields.io/badge/tests-268%20passing-brightgreen.svg)]()
-[![Coverage](https://img.shields.io/badge/coverage-89%25-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-207%20passing-brightgreen.svg)]()
+[![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)]()
 [![uv](https://img.shields.io/badge/managed%20by-uv-purple.svg)](https://docs.astral.sh/uv/)
 
@@ -46,7 +46,7 @@ who need verifiable, auditable, production-grade tooling.**
 | Telemetry | **None.** Zero phone-home. | Default-on Supabase telemetry |
 | Input validation | Pydantic v2 with `extra="forbid"` everywhere | None — raw kwargs |
 | Async runtime | Native `asyncio`, non-blocking | Synchronous `socket.recv` |
-| Tests | **149 passing**, 89% coverage | None visible in repo |
+| Tests | **207 passing**, 90% coverage | None visible in repo |
 | CI | GitHub Actions on Python 3.10 / 3.11 / 3.12 | None |
 | Architecture | Modular package, ~8 files | Monolithic 1186-line `server.py` |
 | Tool annotations | All 4 MCP hints on every tool | Mostly omitted |
@@ -62,7 +62,7 @@ to you, this is the one to use.
 
 ---
 
-## Tools (v0.3.0)
+## Tools (v0.4.1)
 
 ### Core — 13 tools, all Pydantic-validated with full MCP annotations
 
@@ -195,7 +195,11 @@ npx @modelcontextprotocol/inspector uv run mcp-blender-bridge
 
 ### 4 · Wire it into your AI client
 
-Pick the one(s) you use. Restart the client after editing config.
+A ready-to-copy template is at [`.mcp.json.example`](.mcp.json.example).
+Copy it, rename to `.mcp.json` (gitignored), and replace the path.
+
+Replace `<path-to-mcp-blender-bridge>` with the **absolute path** to this directory
+(e.g. `C:\Projects\MCP-HUB\mcp-blender-bridge` on Windows, `/home/you/MCP-HUB/mcp-blender-bridge` on Linux/macOS).
 
 #### Claude Desktop
 
@@ -209,7 +213,7 @@ Pick the one(s) you use. Restart the client after editing config.
       "command": "uv",
       "args": [
         "--directory",
-        "C:\\claude_work\\MCP-HUB\\mcp-blender-bridge",
+        "<path-to-mcp-blender-bridge>",
         "run",
         "mcp-blender-bridge"
       ]
@@ -220,35 +224,33 @@ Pick the one(s) you use. Restart the client after editing config.
 
 #### Claude Code (CLI)
 
-`~/.claude/settings.json`:
+```bash
+claude mcp add blender -- uv --directory <path-to-mcp-blender-bridge> run mcp-blender-bridge
+```
+
+Or add manually to `~/.claude/settings.json`:
 
 ```json
 {
   "mcpServers": {
     "blender": {
       "command": "uv",
-      "args": ["--directory", "C:/claude_work/MCP-HUB/mcp-blender-bridge", "run", "mcp-blender-bridge"]
+      "args": ["--directory", "<path-to-mcp-blender-bridge>", "run", "mcp-blender-bridge"]
     }
   }
 }
 ```
 
-Or one-shot register:
+#### Cursor / Cline / Continue
 
-```bash
-claude mcp add blender -- uv --directory C:/claude_work/MCP-HUB/mcp-blender-bridge run mcp-blender-bridge
-```
-
-#### Cursor
-
-`.cursor/mcp.json` in your workspace (or global at `~/.cursor/mcp.json`):
+`.cursor/mcp.json` (or the equivalent config file for your client):
 
 ```json
 {
   "mcpServers": {
     "blender": {
       "command": "uv",
-      "args": ["--directory", "C:/claude_work/MCP-HUB/mcp-blender-bridge", "run", "mcp-blender-bridge"]
+      "args": ["--directory", "<path-to-mcp-blender-bridge>", "run", "mcp-blender-bridge"]
     }
   }
 }

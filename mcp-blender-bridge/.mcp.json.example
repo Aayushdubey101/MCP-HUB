@@ -1,0 +1,27 @@
+{
+  "mcpServers": {
+    "blender": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/path/to/MCP-HUB/mcp-blender-bridge",
+        "run",
+        "mcp-blender-bridge"
+      ],
+      "env": {
+        "BLENDER_HOST": "127.0.0.1",
+        "BLENDER_PORT": "9876",
+
+        "BLENDER_BRIDGE_READ_ONLY": "false",
+
+        "BLENDER_BRIDGE_LOG_FORMAT": "text",
+
+        "POLYHAVEN_CACHE_DIR": "",
+
+        "HYPER3D_API_KEY": "",
+
+        "SKETCHFAB_API_KEY": ""
+      }
+    }
+  }
+}

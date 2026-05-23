@@ -43,3 +43,19 @@ node_modules/
 .env
 .env.local
 *.local.json
+
+# ── MCP local machine config (contains absolute paths) ─────────────────────
+.mcp.json
+
+# ── Internal audit / setup scratch notes ────────────────────────────────────
+REPORT.md
+SETUP.md
+
+# ── Blender work files ──────────────────────────────────────────────────────
+*.blend
+*.blend1
+
+# ── Render / scratch images ─────────────────────────────────────────────────
+*_render*.png
+*_render*.jpg
+*_render*.exr
