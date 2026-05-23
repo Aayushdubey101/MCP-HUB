@@ -12,7 +12,9 @@ from ..schemas import (
     GetObjectInfoInput,
     GetSceneInfoInput,
     ListObjectsInput,
+    OpenFileInput,
     ResponseFormat,
+    SaveFileInput,
     ViewportScreenshotInput,
 )
 from ..utils import format_error, format_success, handle_blender_error, parse_blender_response
@@ -235,6 +237,72 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
                 ]
 
             return "\n".join(lines)
+        except Exception as exc:  # noqa: BLE001
+            return handle_blender_error(exc)
+
+    @mcp.tool(
+        name="blender_save_file",
+        annotations={
+            "title": "Save Blender File",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    async def blender_save_file(params: SaveFileInput) -> str:
+        """Save the current Blender scene to a .blend file.
+
+        Args:
+            params: SaveFileInput with optional `filepath`. Uses the currently
+                open file path if omitted.
+
+        Returns:
+            JSON with the path the file was saved to.
+
+        Example:
+            blender_save_file(filepath="/tmp/my_scene.blend")
+            blender_save_file()  # saves to current file path
+        """
+        try:
+            response = await client.send_command(
+                "save_file",
+                {"filepath": params.filepath},
+            )
+            return format_success(response)
+        except Exception as exc:  # noqa: BLE001
+            return handle_blender_error(exc)
+
+    @mcp.tool(
+        name="blender_open_file",
+        annotations={
+            "title": "Open Blender File",
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
+    )
+    async def blender_open_file(params: OpenFileInput) -> str:
+        """Open a .blend file in Blender, replacing the current scene.
+
+        WARNING: Unsaved changes to the current scene will be lost.
+
+        Args:
+            params: OpenFileInput with `filepath` (absolute path to .blend file).
+
+        Returns:
+            JSON confirming the file that was opened.
+
+        Example:
+            blender_open_file(filepath="/home/user/projects/scene.blend")
+        """
+        try:
+            response = await client.send_command(
+                "open_file",
+                {"filepath": params.filepath},
+            )
+            return format_success(response)
         except Exception as exc:  # noqa: BLE001
             return handle_blender_error(exc)
 

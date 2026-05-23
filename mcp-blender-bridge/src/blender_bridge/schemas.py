@@ -349,6 +349,36 @@ class RenderImageInput(StrictModel):
 
 
 # ---------------------------------------------------------------------------
+# File management schemas
+# ---------------------------------------------------------------------------
+
+
+class SaveFileInput(StrictModel):
+    """Input for `blender_save_file`."""
+
+    filepath: str | None = Field(
+        default=None,
+        description=(
+            "Absolute path to save the .blend file. "
+            "Uses the currently open file path if omitted."
+        ),
+        min_length=1,
+        max_length=4096,
+    )
+
+
+class OpenFileInput(StrictModel):
+    """Input for `blender_open_file`."""
+
+    filepath: str = Field(
+        ...,
+        description="Absolute path to the .blend file to open.",
+        min_length=1,
+        max_length=4096,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Code execution schema
 # ---------------------------------------------------------------------------
 

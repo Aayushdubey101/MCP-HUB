@@ -23,6 +23,7 @@ import logging
 import os
 import secrets
 import sys
+from importlib.metadata import version as _pkg_version
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 import uvicorn
@@ -224,8 +225,9 @@ def main() -> None:
         )
 
     logger.info(
-        "Starting MCP-Blender-Bridge v0.3.1 "
+        "Starting MCP-Blender-Bridge v%s "
         "(transport=%s, read_only=%s, persistent=%s, log_format=%s, plugins=%d)",
+        _pkg_version("mcp-blender-bridge"),
         args.transport,
         _read_only,
         _persistent,
