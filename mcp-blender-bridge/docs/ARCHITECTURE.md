@@ -38,30 +38,41 @@ Claude via stdio; the Blender addon listens on TCP inside Blender's process.
 
 ```
 src/blender_bridge/
-├── server.py             # Entry point — env-var config, registers tool groups, mcp.run()
-├── client.py             # BlenderClient — async TCP, one connection per command
-├── schemas.py            # All Pydantic input models (single source of truth)
-├── utils.py              # format_success / format_error / parse_blender_response / check_read_only
-├── _log_formatter.py     # JsonFormatter — structured JSON log output
+├── server.py              # Entry point — env-var config, registers tool groups, mcp.run()
+├── client.py              # BlenderClient — async TCP, per-call and persistent modes
+├── schemas.py             # All Pydantic input models (single source of truth)
+├── utils.py               # format_success / format_error / parse_blender_response / check_read_only
+├── asset_cache.py         # SHA-256 content-addressable cache + stale pruning (Phase 8)
+├── headless_blender.py    # Blender --background launcher + port-readiness wait (Phase 9)
+├── plugins.py             # Plugin loader via importlib.metadata entry points
+├── _log_formatter.py      # JsonFormatter — structured JSON log output
 └── tools/
-    ├── __init__.py       # Exports scene, objects, render, code modules
-    ├── scene.py          # 5 read-only tools (ping, scene info, list, object info, screenshot)
-    ├── objects.py        # 6 write tools (create, transform, delete, material, light, camera)
-    ├── render.py         # 1 render tool (render_image — inline PNG preview)
-    └── code.py           # 1 escape-hatch tool (execute_python)
+    ├── __init__.py           # Exports scene, objects, render, code modules
+    ├── scene.py              # 5 read-only tools (ping, scene info, list, object info, screenshot)
+    ├── objects.py            # 6 write tools (create, transform, delete, material, light, camera)
+    ├── render.py             # 1 render tool (render_image — inline PNG preview)
+    └── code.py               # 1 escape-hatch tool (execute_python)
 
 blender_addon/
 └── mcp_blender_bridge.py   # Single-file Blender addon (drag-and-drop install)
 
-tests/
-├── test_schemas.py       # Schema validation (no Blender required)
-├── test_utils.py         # Utils + read-only helpers
-├── test_client.py        # Async TCP client (mocked asyncio)
-├── test_server_features.py  # JsonFormatter, env-var parsing
-├── test_tools_objects.py # 20 object tool tests
-├── test_tools_scene.py   # 18 scene tool tests
-├── test_tools_render.py  # 7 render tool tests
-└── test_tools_code.py    # 6 code tool tests
+plugins/
+├── polyhaven/              # mcp-blender-bridge-polyhaven (5 tools, no key needed)
+├── hyper3d/               # mcp-blender-bridge-hyper3d (5 tools, HYPER3D_API_KEY)
+└── sketchfab/             # mcp-blender-bridge-sketchfab (4 tools, SKETCHFAB_API_KEY)
+
+tests/                      # 204 core tests
+├── test_schemas.py         # Schema validation (no Blender required)
+├── test_utils.py           # Utils + read-only helpers
+├── test_client.py          # Async TCP client (mocked asyncio)
+├── test_server_features.py # JsonFormatter, env-var parsing
+├── test_transport.py       # HTTP transport + AuthMiddleware
+├── test_asset_cache.py     # SHA-256 cache (Phase 8)
+├── test_headless_blender.py # Headless launcher (Phase 9)
+├── test_tools_objects.py   # 20 object tool tests
+├── test_tools_scene.py     # 18 scene tool tests
+├── test_tools_render.py    # 7 render tool tests
+└── test_tools_code.py      # 6 code tool tests
 ```
 
 Each `tools/*.py` exposes one function: `register(mcp, client, *, read_only=False)`. `server.py`
@@ -227,19 +238,19 @@ default-on telemetry. MCP-Blender-Bridge has nothing to disable.
 
 ## Comparison table
 
-| Dimension | `ahujasid/blender-mcp` v1.5.5 | `MCP-Blender-Bridge` v0.3.0 |
+| Dimension | `ahujasid/blender-mcp` v1.5.5 | `MCP-Blender-Bridge` v0.3.1 |
 |-----------|-------------------------------|------------------------------|
 | **Telemetry** | Default-on (Supabase) | Zero — no code exists |
 | **Input validation** | None (raw kwargs) | Pydantic v2, `extra="forbid"` |
 | **Tool annotations** | None | All 4 hints on every tool |
-| **Tests** | 0 | 149 (89% coverage) |
+| **Tests** | 0 | 204 core + 92 plugin = **296 total** |
 | **CI** | None | GitHub Actions, Python 3.10/3.11/3.12 |
 | **Async** | Synchronous `def` | `async def` throughout |
 | **Architecture** | 1 file × 1185 lines | Modular package, no file > 250 lines |
 | **Blender addon** | 1 file × 2635 lines | 1 file × ~430 lines |
 | **Hardcoded secrets** | `RODIN_FREE_TRIAL_KEY` in source | None — BYO keys via env vars |
 | **Error format** | English string `"Error: ..."` | Structured JSON `{"status":"error","message":"..."}` |
-| **Tool count** | 22 (heavy on 3rd-party AI gen) | 14 core + plugin-extensible |
+| **Tool count** | 22 (heavy on 3rd-party AI gen) | 13 core + 14 plugin (27 total) |
 | **Material tool** | None (buried in PolyHaven) | `blender_set_material` (Principled BSDF) |
 | **Light tool** | None | `blender_add_light` (POINT/SUN/SPOT/AREA) |
 | **Camera tool** | None | `blender_set_camera` (aim-at-target) |
@@ -249,8 +260,13 @@ default-on telemetry. MCP-Blender-Bridge has nothing to disable.
 | **Read-only mode** | No | `BLENDER_BRIDGE_READ_ONLY=true` disables all writes |
 | **Structured logging** | No | `BLENDER_BRIDGE_LOG_FORMAT=json` |
 | **Protocol versioning** | No | `BRIDGE_PROTOCOL_VERSION="1.0"` — mismatch warns on ping |
-| **Plugin architecture** | Baked-in integrations | Planned (opt-in packages) |
-| **HTTP transport** | stdio only | Planned |
+| **Plugin architecture** | Baked-in integrations | Entry-point system — 3 plugins shipped |
+| **Asset cache** | None | SHA-256 content-addressable, stale pruning on startup |
+| **HTTP transport** | stdio only | `--transport http` with Bearer auth |
+| **Headless Blender** | None | `--launch-blender` auto-starts `blender --background` |
+| **PolyHaven** | Baked-in | `pip install mcp-blender-bridge-polyhaven` (5 tools) |
+| **Hyper3D/Rodin** | Baked-in (free trial key) | `pip install mcp-blender-bridge-hyper3d` (BYO key) |
+| **Sketchfab** | None | `pip install mcp-blender-bridge-sketchfab` (4 tools) |
 
 ---
 
@@ -296,6 +312,13 @@ directing the user to update the addon. Old addons that predate versioning retur
 | `BLENDER_BRIDGE_LOG_LEVEL` | `INFO` | Python logging level (`DEBUG`/`INFO`/`WARNING`/`ERROR`) |
 | `BLENDER_BRIDGE_LOG_FORMAT` | `text` | Set to `json` for structured log output (log aggregators, CI) |
 | `BLENDER_BRIDGE_READ_ONLY` | `false` | Set to `true`/`1`/`yes` — disables all destructive tools |
+| `BLENDER_BRIDGE_PERSISTENT` | `false` | Reuse a single TCP connection across all calls (faster, reconnects on drop) |
+| `BLENDER_BRIDGE_AUTH_TOKEN` | — | **Required** when using `--transport http`. Bearer token for all requests. |
+| `BLENDER_BRIDGE_CACHE_DIR` | `~/.cache/mcp-blender-bridge/assets` | Shared asset cache for all plugins. |
+| `BLENDER_LAUNCH_TIMEOUT` | `30` | Seconds to wait for Blender addon to open port when `--launch-blender` is used. |
+| `BLENDER_PATH` | — | Override Blender executable location for `--launch-blender`. |
+| `HYPER3D_API_KEY` | — | API key for Hyper3D Rodin plugin (BYO, never embedded). |
+| `SKETCHFAB_API_KEY` | — | API token for Sketchfab plugin downloads. |
 
 ---
 

@@ -85,7 +85,7 @@ class BlenderClient:
     async def _open(self) -> None:
         try:
             self._reader, self._writer = await asyncio.wait_for(
-                asyncio.open_connection(self.host, self.port),
+                asyncio.open_connection(self.host, self.port, limit=64 * 1024 * 1024),
                 timeout=self.timeout,
             )
         except (OSError, asyncio.TimeoutError) as e:
@@ -145,7 +145,7 @@ class BlenderClient:
 
         try:
             reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(self.host, self.port),
+                asyncio.open_connection(self.host, self.port, limit=64 * 1024 * 1024),
                 timeout=t,
             )
         except (OSError, asyncio.TimeoutError) as e:

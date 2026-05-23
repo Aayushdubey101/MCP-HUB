@@ -14,12 +14,14 @@ named functions rather than split across modules.
 bl_info = {
     "name": "MCP Blender Bridge",
     "author": "Aayush Dubey",
-    "version": (0, 4, 0),
+    "version": (0, 4, 1),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > MCP",
     "description": "Bridge Blender to AI assistants via the Model Context Protocol",
     "category": "Development",
 }
+
+_VERSION = ".".join(str(x) for x in bl_info["version"])
 
 import base64
 import contextlib
@@ -55,7 +57,7 @@ def cmd_ping(params: dict[str, Any]) -> dict[str, Any]:
     return {
         "pong": True,
         "blender_version": bpy.app.version_string,
-        "bridge_version": "0.4.0",
+        "bridge_version": _VERSION,
         "protocol_version": BRIDGE_PROTOCOL_VERSION,
     }
 
@@ -544,6 +546,25 @@ def cmd_apply_polyhaven_texture(params: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# File management command handlers
+# ---------------------------------------------------------------------------
+
+
+def cmd_save_file(params: dict[str, Any]) -> dict[str, Any]:
+    filepath = params.get("filepath", bpy.data.filepath)
+    if not filepath:
+        return {"error": "No filepath provided and no file currently open"}
+    bpy.ops.wm.save_as_mainfile(filepath=filepath)
+    return {"saved": filepath}
+
+
+def cmd_open_file(params: dict[str, Any]) -> dict[str, Any]:
+    filepath = params["filepath"]
+    bpy.ops.wm.open_mainfile(filepath=filepath)
+    return {"opened": filepath}
+
+
+# ---------------------------------------------------------------------------
 # 3D model import command handler (used by hyper3d_import and future plugins)
 # ---------------------------------------------------------------------------
 
@@ -624,6 +645,8 @@ COMMAND_HANDLERS: dict[str, Any] = {
     "execute_python": cmd_execute_python,
     "apply_polyhaven_texture": cmd_apply_polyhaven_texture,
     "import_3d_model": cmd_import_3d_model,
+    "save_file": cmd_save_file,
+    "open_file": cmd_open_file,
 }
 
 
@@ -701,7 +724,7 @@ def _handle_client(conn: socket.socket) -> None:
                     response_holder: dict[str, Any] = {}
                     done_event = threading.Event()
                     _command_queue.put((handler, params, response_holder, done_event))
-                    done_event.wait(timeout=60.0)
+                    done_event.wait(timeout=params.get("timeout_seconds", None))
                     response = response_holder.get(
                         "response",
                         {"status": "error", "message": "Command timed out on Blender main thread."},
@@ -795,7 +818,7 @@ class MCP_OT_StopServer(bpy.types.Operator):
 
 
 class MCP_PT_Panel(bpy.types.Panel):
-    bl_label = "MCP Blender Bridge v0.4.0"
+    bl_label = f"MCP Blender Bridge v{_VERSION}"
     bl_idname = "MCP_PT_panel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
