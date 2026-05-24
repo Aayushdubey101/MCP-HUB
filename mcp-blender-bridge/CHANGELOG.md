@@ -4,10 +4,49 @@ All notable changes to **mcp-blender-bridge** are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [SemVer](https://semver.org/).
 
-<!-- ## [Unreleased] -->
+<!-- ## [U
+
+
+nreleased] -->
 
 <!-- --- -->
 
+
+## [0.5.0] — 2026-05-24
+
+### Added
+
+#### In-Blender Chat Panel (`blender_addon/chat_panel/`)
+- **Multi-provider LLM support** — Anthropic (Claude), OpenAI-compatible (GPT-4o, LM Studio, Ollama), Google Gemini; switchable from addon preferences.
+- **Streaming chat panel** — N-panel sidebar in VIEW_3D with live token streaming, chat history, Send / Clear / Record buttons.
+- **Threading bridge** — `bpy.app.timers`-backed queue bridge; LLM HTTP calls run off-thread; main thread handles all `bpy.*` access.
+- **Tool dispatcher** — routes `tool_use` events from any provider directly to `_impl` functions (no TCP round-trip for in-Blender use).
+- **Scene awareness** — `depsgraph_listener.py` buffers up to 200 scene diffs; injected as `<scene_changes_since_last_turn>` block on each send.
+- **Ghost cursor** — GPU draw handler (POST_PIXEL) renders a translucent ring at the active tool's world-space target while a tool call is in flight.
+- **Macro recorder** — start/stop recording captures operator steps via depsgraph diffs; `infer_schema()` generates a JSON Schema; macros persist to `~/.config/mcp-blender-bridge/macros/<name>.json` and can be dynamically registered as FastMCP tools.
+- **Realtime monitor** — opt-in continuous scene polling (off by default); cost estimate (calls/hr, tokens/hr, est $/hr) shown in addon preferences.
+
+#### Modal Mesh Editing Tools
+- `blender_modal_extrude` — extrude selected faces along axis or normal (EXEC_DEFAULT).
+- `blender_modal_loop_cut` — insert edge loops with slide factor (EXEC_DEFAULT).
+- `blender_modal_bevel` — bevel selected edges/vertices (EXEC_DEFAULT).
+- `blender_modal_knife_cut` — knife cut via screen-space points (falls back to bisect in headless mode).
+- `blender_modal_sculpt` — enter sculpt mode with brush + strength.
+
+#### Server / Env
+- `MCPHUB_READ_ONLY`, `MCPHUB_HOST`, `MCPHUB_PORT`, `MCPHUB_MODAL_TOOLS` short-alias env vars.
+- Modal tools gated by `MCPHUB_MODAL_TOOLS=false` for read-only deploys.
+
+#### Documentation
+- README: MCP config snippets for ChatGPT (HTTP mode), Google Gemini (function declarations), LM Studio.
+- `docs/ARCHITECTURE.md`: full v0.5 module table + threading invariant diagram.
+
+### Quality
+- Total test count: **288** (was 207 at v0.4.1). All passing.
+- Zero telemetry confirmed (grepped `src/` + `blender_addon/`).
+- All `bpy.*` access lazy-imported in `chat_panel/` — package importable in test environments without Blender.
+
+---
 
 ## [0.4.1] — 2026-05-23
 

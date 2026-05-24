@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP, Image
 
@@ -29,6 +30,199 @@ _ANNOTATIONS_RO = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Pure implementations — callable without going through MCP/TCP registration
+# ---------------------------------------------------------------------------
+
+
+async def _ping_impl(client: BlenderClient) -> str:
+    try:
+        response = await client.send_command("ping")
+        result = parse_blender_response(response)
+        addon_protocol = result.get("protocol_version") if isinstance(result, dict) else None
+        if addon_protocol and addon_protocol != BRIDGE_PROTOCOL_VERSION:
+            return format_error(
+                f"Protocol version mismatch: server={BRIDGE_PROTOCOL_VERSION!r}, "
+                f"addon={addon_protocol!r}. "
+                "Update blender_addon/mcp_blender_bridge.py to the latest version."
+            )
+        return format_success(
+            {
+                "reachable": True,
+                "blender_version": result.get("blender_version") if isinstance(result, dict) else None,
+                "bridge_version": result.get("bridge_version") if isinstance(result, dict) else None,
+                "protocol_version": addon_protocol or "legacy",
+            },
+            message="Blender bridge is online.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        return handle_blender_error(exc)
+
+
+async def _get_scene_info_impl(params: GetSceneInfoInput, client: BlenderClient) -> str:
+    try:
+        response = await client.send_command("get_scene_info")
+        result = parse_blender_response(response)
+
+        if params.response_format == ResponseFormat.JSON:
+            return format_success(result)
+
+        lines = [
+            "# Blender Scene Overview",
+            "",
+            f"- **Scene:** {result.get('name', 'Unknown')}",
+            f"- **Render engine:** {result.get('engine', 'Unknown')}",
+            f"- **Frame range:** {result.get('frame_start')} → {result.get('frame_end')} "
+            f"(current: {result.get('frame_current')})",
+            f"- **Total objects:** {result.get('object_count', 0)}",
+            f"- **Active object:** {result.get('active_object') or '(none)'}",
+        ]
+        return "\n".join(lines)
+    except Exception as exc:  # noqa: BLE001
+        return handle_blender_error(exc)
+
+
+async def _list_objects_impl(params: ListObjectsInput, client: BlenderClient) -> str:
+    try:
+        response = await client.send_command(
+            "list_objects",
+            {"object_type": params.object_type},
+        )
+        result = parse_blender_response(response)
+        objects = result.get("objects", []) if isinstance(result, dict) else result
+
+        if params.response_format == ResponseFormat.JSON:
+            return format_success({"count": len(objects), "objects": objects})
+
+        if not objects:
+            filt = f" of type `{params.object_type}`" if params.object_type else ""
+            return f"No objects{filt} found in the scene."
+
+        lines = [
+            f"# Scene Objects ({len(objects)} found)",
+            "",
+            "| Name | Type | Location |",
+            "|------|------|----------|",
+        ]
+        for obj in objects:
+            loc = obj.get("location", [0, 0, 0])
+            loc_str = f"({loc[0]:.2f}, {loc[1]:.2f}, {loc[2]:.2f})"
+            lines.append(f"| {obj.get('name', '?')} | {obj.get('type', '?')} | {loc_str} |")
+        return "\n".join(lines)
+    except Exception as exc:  # noqa: BLE001
+        return handle_blender_error(exc)
+
+
+async def _get_object_info_impl(params: GetObjectInfoInput, client: BlenderClient) -> str:
+    try:
+        response = await client.send_command(
+            "get_object_info",
+            {"name": params.name},
+        )
+        result = parse_blender_response(response)
+
+        if params.response_format == ResponseFormat.JSON:
+            return format_success(result)
+
+        loc = result.get("location", [0, 0, 0])
+        rot = result.get("rotation_euler", [0, 0, 0])
+        scl = result.get("scale", [1, 1, 1])
+        dim = result.get("dimensions", [0, 0, 0])
+
+        lines = [
+            f"# Object: {result.get('name', params.name)}",
+            f"**Type:** {result.get('type', 'Unknown')}",
+            "",
+            "## Transform",
+            f"- **Location:** ({loc[0]:.3f}, {loc[1]:.3f}, {loc[2]:.3f})",
+            f"- **Rotation (Euler):** ({rot[0]:.3f}, {rot[1]:.3f}, {rot[2]:.3f}) rad",
+            f"- **Scale:** ({scl[0]:.3f}, {scl[1]:.3f}, {scl[2]:.3f})",
+            f"- **Dimensions:** ({dim[0]:.3f}, {dim[1]:.3f}, {dim[2]:.3f}) m",
+            f"- **Visible:** {result.get('visible', True)}",
+        ]
+
+        mats = result.get("materials", [])
+        if mats:
+            lines += ["", "## Materials", *[f"- {m or '(empty slot)'}" for m in mats]]
+
+        if "mesh" in result:
+            m = result["mesh"]
+            lines += [
+                "",
+                "## Mesh Stats",
+                f"- **Vertices:** {m.get('vertices', 0)}",
+                f"- **Edges:** {m.get('edges', 0)}",
+                f"- **Faces:** {m.get('faces', 0)}",
+            ]
+
+        if "light" in result:
+            li = result["light"]
+            c = li.get("color", [1, 1, 1])
+            lines += [
+                "",
+                "## Light",
+                f"- **Type:** {li.get('type')}",
+                f"- **Energy:** {li.get('energy')} W",
+                f"- **Color:** ({c[0]:.2f}, {c[1]:.2f}, {c[2]:.2f})",
+            ]
+
+        if "camera" in result:
+            cam = result["camera"]
+            lines += [
+                "",
+                "## Camera",
+                f"- **Focal length:** {cam.get('lens')} mm",
+                f"- **Sensor width:** {cam.get('sensor_width')} mm",
+                f"- **Clip range:** {cam.get('clip_start')} – {cam.get('clip_end')} m",
+            ]
+
+        return "\n".join(lines)
+    except Exception as exc:  # noqa: BLE001
+        return handle_blender_error(exc)
+
+
+async def _save_file_impl(params: SaveFileInput, client: BlenderClient) -> str:
+    try:
+        response = await client.send_command(
+            "save_file",
+            {"filepath": params.filepath},
+        )
+        return format_success(response)
+    except Exception as exc:  # noqa: BLE001
+        return handle_blender_error(exc)
+
+
+async def _open_file_impl(params: OpenFileInput, client: BlenderClient) -> str:
+    try:
+        response = await client.send_command(
+            "open_file",
+            {"filepath": params.filepath},
+        )
+        return format_success(response)
+    except Exception as exc:  # noqa: BLE001
+        return handle_blender_error(exc)
+
+
+async def _get_viewport_screenshot_impl(
+    params: ViewportScreenshotInput, client: BlenderClient
+) -> Any:
+    try:
+        response = await client.send_command(
+            "get_viewport_screenshot",
+            {"max_size": params.max_size},
+        )
+        result = parse_blender_response(response)
+        image_bytes = base64.b64decode(result["image_data"])
+        return Image(data=image_bytes, format="png")
+    except Exception as exc:  # noqa: BLE001
+        return handle_blender_error(exc)
+
+
+# ---------------------------------------------------------------------------
+# MCP registration
+# ---------------------------------------------------------------------------
+
+
 def register(mcp: FastMCP, client: BlenderClient) -> None:
     """Register all scene/inspection tools."""
 
@@ -44,31 +238,7 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
         Example:
             blender_ping() → {"status": "success", "result": {"reachable": true}}
         """
-        try:
-            response = await client.send_command("ping")
-            result = parse_blender_response(response)
-            addon_protocol = result.get("protocol_version") if isinstance(result, dict) else None
-            if addon_protocol and addon_protocol != BRIDGE_PROTOCOL_VERSION:
-                return format_error(
-                    f"Protocol version mismatch: server={BRIDGE_PROTOCOL_VERSION!r}, "
-                    f"addon={addon_protocol!r}. "
-                    "Update blender_addon/mcp_blender_bridge.py to the latest version."
-                )
-            return format_success(
-                {
-                    "reachable": True,
-                    "blender_version": result.get("blender_version")
-                    if isinstance(result, dict)
-                    else None,
-                    "bridge_version": result.get("bridge_version")
-                    if isinstance(result, dict)
-                    else None,
-                    "protocol_version": addon_protocol or "legacy",
-                },
-                message="Blender bridge is online.",
-            )
-        except Exception as exc:  # noqa: BLE001
-            return handle_blender_error(exc)
+        return await _ping_impl(client)
 
     @mcp.tool(
         name="blender_get_scene_info",
@@ -88,26 +258,7 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
         Example:
             blender_get_scene_info(response_format="json")
         """
-        try:
-            response = await client.send_command("get_scene_info")
-            result = parse_blender_response(response)
-
-            if params.response_format == ResponseFormat.JSON:
-                return format_success(result)
-
-            lines = [
-                "# Blender Scene Overview",
-                "",
-                f"- **Scene:** {result.get('name', 'Unknown')}",
-                f"- **Render engine:** {result.get('engine', 'Unknown')}",
-                f"- **Frame range:** {result.get('frame_start')} → {result.get('frame_end')} "
-                f"(current: {result.get('frame_current')})",
-                f"- **Total objects:** {result.get('object_count', 0)}",
-                f"- **Active object:** {result.get('active_object') or '(none)'}",
-            ]
-            return "\n".join(lines)
-        except Exception as exc:  # noqa: BLE001
-            return handle_blender_error(exc)
+        return await _get_scene_info_impl(params, client)
 
     @mcp.tool(
         name="blender_list_objects",
@@ -126,34 +277,7 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
         Example:
             blender_list_objects(object_type="MESH", response_format="json")
         """
-        try:
-            response = await client.send_command(
-                "list_objects",
-                {"object_type": params.object_type},
-            )
-            result = parse_blender_response(response)
-            objects = result.get("objects", []) if isinstance(result, dict) else result
-
-            if params.response_format == ResponseFormat.JSON:
-                return format_success({"count": len(objects), "objects": objects})
-
-            if not objects:
-                filt = f" of type `{params.object_type}`" if params.object_type else ""
-                return f"No objects{filt} found in the scene."
-
-            lines = [
-                f"# Scene Objects ({len(objects)} found)",
-                "",
-                "| Name | Type | Location |",
-                "|------|------|----------|",
-            ]
-            for obj in objects:
-                loc = obj.get("location", [0, 0, 0])
-                loc_str = f"({loc[0]:.2f}, {loc[1]:.2f}, {loc[2]:.2f})"
-                lines.append(f"| {obj.get('name', '?')} | {obj.get('type', '?')} | {loc_str} |")
-            return "\n".join(lines)
-        except Exception as exc:  # noqa: BLE001
-            return handle_blender_error(exc)
+        return await _list_objects_impl(params, client)
 
     @mcp.tool(
         name="blender_get_object_info",
@@ -174,71 +298,7 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
         Example:
             blender_get_object_info(name="Cube")
         """
-        try:
-            response = await client.send_command(
-                "get_object_info",
-                {"name": params.name},
-            )
-            result = parse_blender_response(response)
-
-            if params.response_format == ResponseFormat.JSON:
-                return format_success(result)
-
-            loc = result.get("location", [0, 0, 0])
-            rot = result.get("rotation_euler", [0, 0, 0])
-            scl = result.get("scale", [1, 1, 1])
-            dim = result.get("dimensions", [0, 0, 0])
-
-            lines = [
-                f"# Object: {result.get('name', params.name)}",
-                f"**Type:** {result.get('type', 'Unknown')}",
-                "",
-                "## Transform",
-                f"- **Location:** ({loc[0]:.3f}, {loc[1]:.3f}, {loc[2]:.3f})",
-                f"- **Rotation (Euler):** ({rot[0]:.3f}, {rot[1]:.3f}, {rot[2]:.3f}) rad",
-                f"- **Scale:** ({scl[0]:.3f}, {scl[1]:.3f}, {scl[2]:.3f})",
-                f"- **Dimensions:** ({dim[0]:.3f}, {dim[1]:.3f}, {dim[2]:.3f}) m",
-                f"- **Visible:** {result.get('visible', True)}",
-            ]
-
-            mats = result.get("materials", [])
-            if mats:
-                lines += ["", "## Materials", *[f"- {m or '(empty slot)'}" for m in mats]]
-
-            if "mesh" in result:
-                m = result["mesh"]
-                lines += [
-                    "",
-                    "## Mesh Stats",
-                    f"- **Vertices:** {m.get('vertices', 0)}",
-                    f"- **Edges:** {m.get('edges', 0)}",
-                    f"- **Faces:** {m.get('faces', 0)}",
-                ]
-
-            if "light" in result:
-                li = result["light"]
-                c = li.get("color", [1, 1, 1])
-                lines += [
-                    "",
-                    "## Light",
-                    f"- **Type:** {li.get('type')}",
-                    f"- **Energy:** {li.get('energy')} W",
-                    f"- **Color:** ({c[0]:.2f}, {c[1]:.2f}, {c[2]:.2f})",
-                ]
-
-            if "camera" in result:
-                cam = result["camera"]
-                lines += [
-                    "",
-                    "## Camera",
-                    f"- **Focal length:** {cam.get('lens')} mm",
-                    f"- **Sensor width:** {cam.get('sensor_width')} mm",
-                    f"- **Clip range:** {cam.get('clip_start')} – {cam.get('clip_end')} m",
-                ]
-
-            return "\n".join(lines)
-        except Exception as exc:  # noqa: BLE001
-            return handle_blender_error(exc)
+        return await _get_object_info_impl(params, client)
 
     @mcp.tool(
         name="blender_save_file",
@@ -264,14 +324,7 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
             blender_save_file(filepath="/tmp/my_scene.blend")
             blender_save_file()  # saves to current file path
         """
-        try:
-            response = await client.send_command(
-                "save_file",
-                {"filepath": params.filepath},
-            )
-            return format_success(response)
-        except Exception as exc:  # noqa: BLE001
-            return handle_blender_error(exc)
+        return await _save_file_impl(params, client)
 
     @mcp.tool(
         name="blender_open_file",
@@ -297,20 +350,13 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
         Example:
             blender_open_file(filepath="/home/user/projects/scene.blend")
         """
-        try:
-            response = await client.send_command(
-                "open_file",
-                {"filepath": params.filepath},
-            )
-            return format_success(response)
-        except Exception as exc:  # noqa: BLE001
-            return handle_blender_error(exc)
+        return await _open_file_impl(params, client)
 
     @mcp.tool(
         name="blender_get_viewport_screenshot",
         annotations={**_ANNOTATIONS_RO, "title": "Get Viewport Screenshot"},
     )
-    async def blender_get_viewport_screenshot(params: ViewportScreenshotInput):  # noqa: ANN201  # Image | str — FastMCP handles Image at runtime
+    async def blender_get_viewport_screenshot(params: ViewportScreenshotInput):  # noqa: ANN201
         """Capture a screenshot of the current Blender 3D viewport.
 
         Renders using OpenGL and returns the image inline. Great for inspecting
@@ -325,13 +371,4 @@ def register(mcp: FastMCP, client: BlenderClient) -> None:
         Example:
             blender_get_viewport_screenshot(max_size=1024)
         """
-        try:
-            response = await client.send_command(
-                "get_viewport_screenshot",
-                {"max_size": params.max_size},
-            )
-            result = parse_blender_response(response)
-            image_bytes = base64.b64decode(result["image_data"])
-            return Image(data=image_bytes, format="png")
-        except Exception as exc:  # noqa: BLE001
-            return handle_blender_error(exc)
+        return await _get_viewport_screenshot_impl(params, client)

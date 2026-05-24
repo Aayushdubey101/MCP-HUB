@@ -26,6 +26,165 @@ from ..utils import (
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Pure implementations — callable without going through MCP/TCP registration
+# ---------------------------------------------------------------------------
+
+
+async def _create_primitive_impl(
+    params: CreatePrimitiveInput, client: BlenderClient, read_only: bool = False
+) -> str:
+    if err := check_read_only(read_only):
+        return err
+    try:
+        response = await client.send_command(
+            "create_primitive",
+            {
+                "primitive_type": params.primitive_type.value,
+                "name": params.name,
+                "location": list(params.location),
+                "size": params.size,
+            },
+        )
+        result = parse_blender_response(response)
+        return format_success(
+            result,
+            message=f"Created {params.primitive_type.value} '{result.get('name', 'unnamed')}'.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        return handle_blender_error(exc)
+
+
+async def _transform_object_impl(
+    params: TransformObjectInput, client: BlenderClient, read_only: bool = False
+) -> str:
+    if err := check_read_only(read_only):
+        return err
+    if all(v is None for v in (params.location, params.rotation_euler, params.scale)):
+        return format_error(
+            "No transform values provided. Specify at least one of: "
+            "location, rotation_euler, or scale."
+        )
+    try:
+        response = await client.send_command(
+            "transform_object",
+            {
+                "name": params.name,
+                "location": list(params.location) if params.location else None,
+                "rotation_euler": (
+                    list(params.rotation_euler) if params.rotation_euler else None
+                ),
+                "scale": list(params.scale) if params.scale else None,
+            },
+        )
+        result = parse_blender_response(response)
+        return format_success(result, message=f"Transformed '{params.name}'.")
+    except Exception as exc:  # noqa: BLE001
+        return handle_blender_error(exc)
+
+
+async def _delete_object_impl(
+    params: DeleteObjectInput, client: BlenderClient, read_only: bool = False
+) -> str:
+    if err := check_read_only(read_only):
+        return err
+    try:
+        response = await client.send_command(
+            "delete_object",
+            {"name": params.name},
+        )
+        result = parse_blender_response(response)
+        return format_success(result, message=f"Deleted '{params.name}'.")
+    except Exception as exc:  # noqa: BLE001
+        return handle_blender_error(exc)
+
+
+async def _set_material_impl(
+    params: SetMaterialInput, client: BlenderClient, read_only: bool = False
+) -> str:
+    if err := check_read_only(read_only):
+        return err
+    try:
+        response = await client.send_command(
+            "set_material",
+            {
+                "object_name": params.object_name,
+                "color": list(params.color),
+                "metallic": params.metallic,
+                "roughness": params.roughness,
+                "material_name": params.material_name,
+                "emission_color": list(params.emission_color) if params.emission_color else None,
+                "emission_strength": params.emission_strength,
+            },
+        )
+        result = parse_blender_response(response)
+        return format_success(
+            result,
+            message=f"Applied material '{result.get('material')}' to '{params.object_name}'.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        return handle_blender_error(exc)
+
+
+async def _add_light_impl(
+    params: AddLightInput, client: BlenderClient, read_only: bool = False
+) -> str:
+    if err := check_read_only(read_only):
+        return err
+    try:
+        response = await client.send_command(
+            "add_light",
+            {
+                "light_type": params.light_type.value,
+                "name": params.name,
+                "location": list(params.location),
+                "energy": params.energy,
+                "color": list(params.color),
+                "radius": params.radius,
+                "spot_size": params.spot_size,
+                "spot_blend": params.spot_blend,
+                "size": params.size,
+            },
+        )
+        result = parse_blender_response(response)
+        return format_success(
+            result,
+            message=f"Added {params.light_type.value} light '{result.get('name')}'.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        return handle_blender_error(exc)
+
+
+async def _set_camera_impl(
+    params: SetCameraInput, client: BlenderClient, read_only: bool = False
+) -> str:
+    if err := check_read_only(read_only):
+        return err
+    try:
+        response = await client.send_command(
+            "set_camera",
+            {
+                "name": params.name,
+                "location": list(params.location) if params.location else None,
+                "target": list(params.target) if params.target else None,
+                "lens": params.lens,
+                "set_active": params.set_active,
+            },
+        )
+        result = parse_blender_response(response)
+        return format_success(
+            result,
+            message=f"Camera '{result.get('name')}' configured.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        return handle_blender_error(exc)
+
+
+# ---------------------------------------------------------------------------
+# MCP registration
+# ---------------------------------------------------------------------------
+
+
 def register(mcp: FastMCP, client: BlenderClient, *, read_only: bool = False) -> None:
     """Register all object manipulation tools."""
 
@@ -52,25 +211,7 @@ def register(mcp: FastMCP, client: BlenderClient, *, read_only: bool = False) ->
         Example:
             blender_create_primitive(primitive_type="cube", name="MyCube", location=(0,0,1))
         """
-        if err := check_read_only(read_only):
-            return err
-        try:
-            response = await client.send_command(
-                "create_primitive",
-                {
-                    "primitive_type": params.primitive_type.value,
-                    "name": params.name,
-                    "location": list(params.location),
-                    "size": params.size,
-                },
-            )
-            result = parse_blender_response(response)
-            return format_success(
-                result,
-                message=f"Created {params.primitive_type.value} '{result.get('name', 'unnamed')}'.",
-            )
-        except Exception as exc:  # noqa: BLE001
-            return handle_blender_error(exc)
+        return await _create_primitive_impl(params, client, read_only)
 
     @mcp.tool(
         name="blender_transform_object",
@@ -98,30 +239,7 @@ def register(mcp: FastMCP, client: BlenderClient, *, read_only: bool = False) ->
         Example:
             blender_transform_object(name="Cube", location=(1,0,0), scale=(2,2,2))
         """
-        if err := check_read_only(read_only):
-            return err
-        if all(v is None for v in (params.location, params.rotation_euler, params.scale)):
-            return format_error(
-                "No transform values provided. Specify at least one of: "
-                "location, rotation_euler, or scale."
-            )
-
-        try:
-            response = await client.send_command(
-                "transform_object",
-                {
-                    "name": params.name,
-                    "location": list(params.location) if params.location else None,
-                    "rotation_euler": (
-                        list(params.rotation_euler) if params.rotation_euler else None
-                    ),
-                    "scale": list(params.scale) if params.scale else None,
-                },
-            )
-            result = parse_blender_response(response)
-            return format_success(result, message=f"Transformed '{params.name}'.")
-        except Exception as exc:  # noqa: BLE001
-            return handle_blender_error(exc)
+        return await _transform_object_impl(params, client, read_only)
 
     @mcp.tool(
         name="blender_delete_object",
@@ -148,17 +266,7 @@ def register(mcp: FastMCP, client: BlenderClient, *, read_only: bool = False) ->
         Example:
             blender_delete_object(name="Cube")
         """
-        if err := check_read_only(read_only):
-            return err
-        try:
-            response = await client.send_command(
-                "delete_object",
-                {"name": params.name},
-            )
-            result = parse_blender_response(response)
-            return format_success(result, message=f"Deleted '{params.name}'.")
-        except Exception as exc:  # noqa: BLE001
-            return handle_blender_error(exc)
+        return await _delete_object_impl(params, client, read_only)
 
     @mcp.tool(
         name="blender_set_material",
@@ -186,30 +294,7 @@ def register(mcp: FastMCP, client: BlenderClient, *, read_only: bool = False) ->
         Example:
             blender_set_material(object_name="Cube", color=(0.2, 0.4, 0.8, 1.0), metallic=0.9)
         """
-        if err := check_read_only(read_only):
-            return err
-        try:
-            response = await client.send_command(
-                "set_material",
-                {
-                    "object_name": params.object_name,
-                    "color": list(params.color),
-                    "metallic": params.metallic,
-                    "roughness": params.roughness,
-                    "material_name": params.material_name,
-                    "emission_color": list(params.emission_color)
-                    if params.emission_color
-                    else None,
-                    "emission_strength": params.emission_strength,
-                },
-            )
-            result = parse_blender_response(response)
-            return format_success(
-                result,
-                message=f"Applied material '{result.get('material')}' to '{params.object_name}'.",
-            )
-        except Exception as exc:  # noqa: BLE001
-            return handle_blender_error(exc)
+        return await _set_material_impl(params, client, read_only)
 
     @mcp.tool(
         name="blender_add_light",
@@ -237,30 +322,7 @@ def register(mcp: FastMCP, client: BlenderClient, *, read_only: bool = False) ->
         Example:
             blender_add_light(light_type="POINT", location=(0, 0, 4), energy=2000)
         """
-        if err := check_read_only(read_only):
-            return err
-        try:
-            response = await client.send_command(
-                "add_light",
-                {
-                    "light_type": params.light_type.value,
-                    "name": params.name,
-                    "location": list(params.location),
-                    "energy": params.energy,
-                    "color": list(params.color),
-                    "radius": params.radius,
-                    "spot_size": params.spot_size,
-                    "spot_blend": params.spot_blend,
-                    "size": params.size,
-                },
-            )
-            result = parse_blender_response(response)
-            return format_success(
-                result,
-                message=f"Added {params.light_type.value} light '{result.get('name')}'.",
-            )
-        except Exception as exc:  # noqa: BLE001
-            return handle_blender_error(exc)
+        return await _add_light_impl(params, client, read_only)
 
     @mcp.tool(
         name="blender_set_camera",
@@ -288,23 +350,4 @@ def register(mcp: FastMCP, client: BlenderClient, *, read_only: bool = False) ->
         Example:
             blender_set_camera(location=(5, -5, 3), target=(0, 0, 0), lens=50)
         """
-        if err := check_read_only(read_only):
-            return err
-        try:
-            response = await client.send_command(
-                "set_camera",
-                {
-                    "name": params.name,
-                    "location": list(params.location) if params.location else None,
-                    "target": list(params.target) if params.target else None,
-                    "lens": params.lens,
-                    "set_active": params.set_active,
-                },
-            )
-            result = parse_blender_response(response)
-            return format_success(
-                result,
-                message=f"Camera '{result.get('name')}' configured.",
-            )
-        except Exception as exc:  # noqa: BLE001
-            return handle_blender_error(exc)
+        return await _set_camera_impl(params, client, read_only)

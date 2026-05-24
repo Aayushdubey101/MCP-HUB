@@ -1,6 +1,6 @@
 [project]
 name = "mcp-blender-bridge"
-version = "0.4.1"
+version = "0.5.0"
 description = "Production-grade Blender MCP server — zero telemetry, Pydantic-validated, async-native, plugin-extensible"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -40,6 +40,11 @@ plugins = [
     "mcp-blender-bridge-polyhaven",
     "mcp-blender-bridge-hyper3d",
     "mcp-blender-bridge-sketchfab",
+]
+chat = [
+    "anthropic>=0.40.0",
+    "openai>=1.55.0",
+    "google-genai>=0.3.0",
 ]
 
 [project.scripts]
