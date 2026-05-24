@@ -319,6 +319,57 @@ directing the user to update the addon. Old addons that predate versioning retur
 | `BLENDER_PATH` | — | Override Blender executable location for `--launch-blender`. |
 | `HYPER3D_API_KEY` | — | API key for Hyper3D Rodin plugin (BYO, never embedded). |
 | `SKETCHFAB_API_KEY` | — | API token for Sketchfab plugin downloads. |
+| `MCPHUB_READ_ONLY` | — | Short alias for `BLENDER_BRIDGE_READ_ONLY`. |
+| `MCPHUB_HOST` | — | Short alias — overrides `BLENDER_BRIDGE_HOST` if set. |
+| `MCPHUB_PORT` | — | Short alias — overrides `BLENDER_BRIDGE_PORT` if set. |
+| `MCPHUB_MODAL_TOOLS` | `true` | Set to `false`/`0` to disable the 5 modal mesh-editing tools. |
+
+---
+
+## v0.5 additions (Sprint 1–6)
+
+### Chat Panel (`blender_addon/chat_panel/`)
+
+A multi-provider in-Blender chat panel, shipping as a sub-package of the Blender addon:
+
+| Module | Purpose |
+|--------|---------|
+| `providers/base.py` | ABC `Provider` + `ChatEvent` union (TextDelta, ToolUseStart/Args/End, Stop) |
+| `providers/anthropic.py` | Anthropic SDK streaming wrapper |
+| `providers/openai_compat.py` | OpenAI SDK wrapper (also covers GPT-4o, LM Studio, Ollama) |
+| `providers/gemini.py` | google-genai SDK streaming wrapper |
+| `providers/registry.py` | `get_provider(name, api_key, base_url)` factory |
+| `tool_format.py` | `pydantic_to_{anthropic,openai,gemini}` — convert StrictModel → provider schema |
+| `properties.py` | `ChatMessage` + `ChatState` Blender PropertyGroups |
+| `preferences.py` | `MCPHUBPreferences` AddonPreferences (provider, model, key, realtime mode) |
+| `panel.py` | `MCPHUB_PT_chat` N-panel in VIEW_3D sidebar |
+| `operators.py` | Send / Clear / StartRecording / StopRecording operators |
+| `threading_bridge.py` | Queue-based worker↔main-thread bridge; `_main_thread_tick` timer |
+| `tool_dispatcher.py` | Routes `tool_use` events to `_impl` functions; ghost cursor integration |
+| `depsgraph_listener.py` | Buffers scene diffs (200-entry deque); `flush_diffs()` / `format_diffs()` |
+| `ghost_cursor.py` | GPU draw handler — translucent ring at active tool target |
+| `macro_recorder.py` | Start/stop recording; depsgraph diff→steps; `infer_schema()`; persist JSON |
+| `realtime_monitor.py` | Optional continuous scene-polling timer; cost estimate in prefs |
+
+### Threading invariant
+
+```
+Worker thread (asyncio):          Main thread (bpy.app.timers @50ms):
+  provider.chat() stream            Drain _text_q → history[-1].content
+  ↓ TextDelta → _text_q            Drain _tool_q → asyncio.run(dispatch())
+  ↓ ToolUseEnd → _tool_q                           ↓ send_command() (TCP)
+  block on _response_q ←───────── put result on _response_q
+  ↓ Stop(tool_use) → loop again   Drain _stop_q → clear is_streaming
+  ↓ Stop(end_turn) → done
+```
+
+`bpy.*` is **never** accessed from the worker thread.
+
+### Modal tools (`src/blender_bridge/tools/modal.py`)
+
+Five new tools for mesh editing. EXEC_DEFAULT (deterministic): extrude, loop_cut, bevel.
+INVOKE_DEFAULT (interactive, requires window): knife_cut, sculpt.
+In headless/TCP mode, knife falls back to `bpy.ops.mesh.bisect`.
 
 ---
 
