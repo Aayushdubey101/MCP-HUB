@@ -13,6 +13,32 @@ from ..utils import check_read_only, format_success, handle_blender_error, parse
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Pure implementation — callable without going through MCP/TCP registration
+# ---------------------------------------------------------------------------
+
+
+async def _execute_python_impl(
+    params: ExecutePythonInput, client: BlenderClient, read_only: bool = False
+) -> str:
+    if err := check_read_only(read_only):
+        return err
+    try:
+        response = await client.send_command(
+            "execute_python",
+            {"code": params.code},
+        )
+        result = parse_blender_response(response)
+        return format_success(result)
+    except Exception as exc:  # noqa: BLE001
+        return handle_blender_error(exc)
+
+
+# ---------------------------------------------------------------------------
+# MCP registration
+# ---------------------------------------------------------------------------
+
+
 def register(mcp: FastMCP, client: BlenderClient, *, read_only: bool = False) -> None:
     """Register the Python execution escape-hatch tool."""
 
@@ -43,14 +69,4 @@ def register(mcp: FastMCP, client: BlenderClient, *, read_only: bool = False) ->
         Example:
             code = "result = [obj.name for obj in bpy.data.objects if obj.type == 'MESH']"
         """
-        if err := check_read_only(read_only):
-            return err
-        try:
-            response = await client.send_command(
-                "execute_python",
-                {"code": params.code},
-            )
-            result = parse_blender_response(response)
-            return format_success(result)
-        except Exception as exc:  # noqa: BLE001
-            return handle_blender_error(exc)
+        return await _execute_python_impl(params, client, read_only)

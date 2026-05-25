@@ -40,6 +40,7 @@ from .client import BlenderClient
 from .headless_blender import launch_blender
 from .plugins import list_plugins_text, load_plugins
 from .tools import code as code_tools
+from .tools import modal as modal_tools
 from .tools import objects as object_tools
 from .tools import render as render_tools
 from .tools import scene as scene_tools
@@ -52,6 +53,16 @@ _log_level = os.getenv("BLENDER_BRIDGE_LOG_LEVEL", "INFO")
 _log_format = os.getenv("BLENDER_BRIDGE_LOG_FORMAT", "text").lower()
 _read_only = os.getenv("BLENDER_BRIDGE_READ_ONLY", "false").lower() in ("1", "true", "yes")
 _persistent = os.getenv("BLENDER_BRIDGE_PERSISTENT", "false").lower() in ("1", "true", "yes")
+
+# MCPHUB_* env vars (Sprint 6) — alternative shorter aliases for key settings
+# MCPHUB_READ_ONLY overrides BLENDER_BRIDGE_READ_ONLY if set
+if os.getenv("MCPHUB_READ_ONLY", "").lower() in ("1", "true", "yes"):
+    _read_only = True
+# MCPHUB_HOST / MCPHUB_PORT override BLENDER_BRIDGE_HOST/PORT if set
+_mcphub_host_override = os.getenv("MCPHUB_HOST")
+_mcphub_port_override = os.getenv("MCPHUB_PORT")
+# MCPHUB_MODAL_TOOLS — enable/disable the 5 modal tools (default: enabled)
+_modal_tools_enabled = os.getenv("MCPHUB_MODAL_TOOLS", "true").lower() not in ("0", "false", "no")
 
 if _log_format == "json":
     _handler = logging.StreamHandler()
@@ -74,8 +85,8 @@ logger = logging.getLogger("blender_bridge")
 mcp = FastMCP("blender_mcp")
 
 _client = BlenderClient(
-    host=os.getenv("BLENDER_BRIDGE_HOST", "127.0.0.1"),
-    port=int(os.getenv("BLENDER_BRIDGE_PORT", "9876")),
+    host=_mcphub_host_override or os.getenv("BLENDER_BRIDGE_HOST", "127.0.0.1") or "127.0.0.1",
+    port=int(_mcphub_port_override or os.getenv("BLENDER_BRIDGE_PORT", "9876") or "9876"),
     persistent=_persistent,
 )
 
@@ -84,6 +95,8 @@ scene_tools.register(mcp, _client)
 object_tools.register(mcp, _client, read_only=_read_only)
 render_tools.register(mcp, _client, read_only=_read_only)
 code_tools.register(mcp, _client, read_only=_read_only)
+if _modal_tools_enabled:
+    modal_tools.register(mcp, _client, read_only=_read_only)
 
 # Discover and register installed plugins (asset libraries, AI generators, etc.).
 # Zero plugins ship with the core package — this is opt-in by `pip install`.

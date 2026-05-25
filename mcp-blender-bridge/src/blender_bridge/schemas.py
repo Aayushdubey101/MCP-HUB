@@ -7,6 +7,7 @@ declarative and lets FastMCP auto-generate accurate input schemas.
 from __future__ import annotations
 
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -399,3 +400,38 @@ class ExecutePythonInput(StrictModel):
         min_length=1,
         max_length=20_000,
     )
+
+
+# ---------------------------------------------------------------------------
+# Modal tool schemas (Sprint 4)
+# ---------------------------------------------------------------------------
+
+
+class ModalExtrudeInput(StrictModel):
+    object_name: str = Field(min_length=1, max_length=63)
+    direction: Literal["x", "y", "z", "normal"] = "normal"
+    distance: float = Field(gt=-1000, lt=1000)
+
+
+class ModalLoopCutInput(StrictModel):
+    object_name: str = Field(min_length=1, max_length=63)
+    edge_index: int = Field(ge=0)
+    cuts: int = Field(ge=1, le=64, default=1)
+    factor: float = Field(ge=-1.0, le=1.0, default=0.0)
+
+
+class ModalKnifeCutInput(StrictModel):
+    object_name: str = Field(min_length=1, max_length=63)
+    points: list[tuple[float, float]] = Field(min_length=2, max_length=32)
+
+
+class ModalBevelInput(StrictModel):
+    object_name: str = Field(min_length=1, max_length=63)
+    width: float = Field(gt=0, lt=10.0, default=0.01)
+    segments: int = Field(ge=1, le=16, default=1)
+
+
+class ModalSculptInput(StrictModel):
+    object_name: str = Field(min_length=1, max_length=63)
+    brush: str = Field(default="DRAW")
+    strength: float = Field(ge=0.0, le=1.0, default=0.5)
