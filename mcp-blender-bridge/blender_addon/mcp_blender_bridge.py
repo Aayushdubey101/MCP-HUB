@@ -14,7 +14,7 @@ named functions rather than split across modules.
 bl_info = {
     "name": "MCP Blender Bridge",
     "author": "Aayush Dubey",
-    "version": (0, 4, 1),
+    "version": (0, 5, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > MCP",
     "description": "Bridge Blender to AI assistants via the Model Context Protocol",
@@ -626,6 +626,175 @@ def cmd_import_3d_model(params: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Modal mesh editing command handlers (Sprint 4)
+# ---------------------------------------------------------------------------
+
+
+def _ensure_edit_mode(obj: "bpy.types.Object") -> None:
+    """Select obj and enter Edit Mode. Caller must be on main thread."""
+    bpy.context.view_layer.objects.active = obj
+    for o in bpy.context.selected_objects:
+        o.select_set(False)
+    obj.select_set(True)
+    if bpy.context.mode != "EDIT_MESH":
+        bpy.ops.object.mode_set(mode="EDIT")
+
+
+def cmd_modal_extrude(params: dict[str, Any]) -> dict[str, Any]:
+    """EXEC_DEFAULT — extrude selected faces along direction by distance."""
+    object_name: str = params["object_name"]
+    direction: str = params.get("direction", "normal")
+    distance: float = float(params["distance"])
+
+    obj = bpy.data.objects.get(object_name)
+    if obj is None:
+        raise ValueError(f"Object '{object_name}' not found.")
+
+    _ensure_edit_mode(obj)
+    bpy.ops.mesh.select_all(action="SELECT")
+
+    dir_map = {
+        "x": (distance, 0.0, 0.0),
+        "y": (0.0, distance, 0.0),
+        "z": (0.0, 0.0, distance),
+        "normal": (0.0, 0.0, distance),
+    }
+    vec = dir_map.get(direction, (0.0, 0.0, distance))
+
+    if direction == "normal":
+        bpy.ops.mesh.extrude_region_move(
+            "EXEC_DEFAULT",
+            TRANSFORM_OT_translate={"value": vec, "orient_type": "NORMAL"},
+        )
+    else:
+        axis_map = {"x": (True, False, False), "y": (False, True, False), "z": (False, False, True)}
+        bpy.ops.mesh.extrude_region_move(
+            "EXEC_DEFAULT",
+            TRANSFORM_OT_translate={
+                "value": vec,
+                "orient_type": "GLOBAL",
+                "constraint_axis": axis_map[direction],
+            },
+        )
+
+    bpy.ops.object.mode_set(mode="OBJECT")
+    return {"object_name": object_name, "direction": direction, "distance": distance}
+
+
+def cmd_modal_loop_cut(params: dict[str, Any]) -> dict[str, Any]:
+    """EXEC_DEFAULT — insert edge loop on edge_index with factor slide."""
+    object_name: str = params["object_name"]
+    edge_index: int = int(params["edge_index"])
+    cuts: int = int(params.get("cuts", 1))
+    factor: float = float(params.get("factor", 0.0))
+
+    obj = bpy.data.objects.get(object_name)
+    if obj is None:
+        raise ValueError(f"Object '{object_name}' not found.")
+
+    _ensure_edit_mode(obj)
+
+    bpy.ops.mesh.loopcut_slide(
+        "EXEC_DEFAULT",
+        MESH_OT_loopcut={
+            "number_cuts": cuts,
+            "object": object_name,
+            "edge_index": edge_index,
+            "smoothness": 0.0,
+        },
+        TRANSFORM_OT_edge_slide={"value": factor},
+    )
+
+    bpy.ops.object.mode_set(mode="OBJECT")
+    return {"object_name": object_name, "edge_index": edge_index, "cuts": cuts, "factor": factor}
+
+
+def cmd_modal_knife_cut(params: dict[str, Any]) -> dict[str, Any]:
+    """Bisect-based knife cut using first two screen-space points.
+
+    Full INVOKE_DEFAULT knife is interactive; falls back to bisect in
+    headless / TCP-bridge context.
+    """
+    import mathutils
+
+    object_name: str = params["object_name"]
+    points: list[list[float]] = params["points"]
+
+    obj = bpy.data.objects.get(object_name)
+    if obj is None:
+        raise ValueError(f"Object '{object_name}' not found.")
+
+    _ensure_edit_mode(obj)
+    bpy.ops.mesh.select_all(action="SELECT")
+
+    p0 = mathutils.Vector((points[0][0], points[0][1], 0.0))
+    p1 = mathutils.Vector((points[1][0], points[1][1], 0.0))
+    plane_no = (p1 - p0).normalized()
+    plane_no = mathutils.Vector((-plane_no.y, plane_no.x, 0.0))
+
+    bpy.ops.mesh.bisect(
+        "EXEC_DEFAULT",
+        plane_co=(p0.x, p0.y, 0.0),
+        plane_no=(plane_no.x, plane_no.y, plane_no.z),
+        use_fill=False,
+        clear_inner=False,
+        clear_outer=False,
+    )
+
+    bpy.ops.object.mode_set(mode="OBJECT")
+    return {"object_name": object_name, "points_used": len(points)}
+
+
+def cmd_modal_bevel(params: dict[str, Any]) -> dict[str, Any]:
+    """EXEC_DEFAULT — bevel selected edges or vertices."""
+    object_name: str = params["object_name"]
+    width: float = float(params.get("width", 0.01))
+    segments: int = int(params.get("segments", 1))
+
+    obj = bpy.data.objects.get(object_name)
+    if obj is None:
+        raise ValueError(f"Object '{object_name}' not found.")
+
+    _ensure_edit_mode(obj)
+    bpy.ops.mesh.select_all(action="SELECT")
+
+    bpy.ops.mesh.bevel(
+        "EXEC_DEFAULT",
+        offset=width,
+        segments=segments,
+        affect="EDGES",
+    )
+
+    bpy.ops.object.mode_set(mode="OBJECT")
+    return {"object_name": object_name, "width": width, "segments": segments}
+
+
+def cmd_modal_sculpt(params: dict[str, Any]) -> dict[str, Any]:
+    """INVOKE_DEFAULT — enter sculpt mode and set brush + strength."""
+    object_name: str = params["object_name"]
+    brush_name: str = params.get("brush", "DRAW")
+    strength: float = float(params.get("strength", 0.5))
+
+    obj = bpy.data.objects.get(object_name)
+    if obj is None:
+        raise ValueError(f"Object '{object_name}' not found.")
+
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+
+    if bpy.context.mode != "SCULPT":
+        bpy.ops.object.mode_set(mode="SCULPT")
+
+    tool_settings = bpy.context.tool_settings.sculpt
+    brush = bpy.data.brushes.get(brush_name)
+    if brush is not None:
+        tool_settings.brush = brush
+    tool_settings.brush.strength = strength
+
+    return {"object_name": object_name, "brush": brush_name, "strength": strength, "mode": "SCULPT"}
+
+
+# ---------------------------------------------------------------------------
 # Command dispatch table
 # ---------------------------------------------------------------------------
 
@@ -647,6 +816,11 @@ COMMAND_HANDLERS: dict[str, Any] = {
     "import_3d_model": cmd_import_3d_model,
     "save_file": cmd_save_file,
     "open_file": cmd_open_file,
+    "modal_extrude": cmd_modal_extrude,
+    "modal_loop_cut": cmd_modal_loop_cut,
+    "modal_knife_cut": cmd_modal_knife_cut,
+    "modal_bevel": cmd_modal_bevel,
+    "modal_sculpt": cmd_modal_sculpt,
 }
 
 
