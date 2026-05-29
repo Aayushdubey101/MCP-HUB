@@ -28,7 +28,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import socket
 import sys
 import textwrap
 from pathlib import Path
