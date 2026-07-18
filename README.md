@@ -18,7 +18,7 @@
 
 ### MCP-Blender-Bridge — ✅ Released (v0.4.1)
 
-> [`mcp-blender-bridge/`](mcp-blender-bridge/) · [Full docs](mcp-blender-bridge/README.md)
+> **Repo: [Aayushdubey101/Blender-MCP](https://github.com/Aayushdubey101/Blender-MCP)** · [Full docs](https://github.com/Aayushdubey101/Blender-MCP#readme)
 
 Production-grade MCP server that connects Blender 3D to any MCP-compatible AI assistant (Claude Desktop, Claude Code, Antigravity, Cursor, Cline, …).
 
@@ -36,8 +36,8 @@ Production-grade MCP server that connects Blender 3D to any MCP-compatible AI as
 
 ```bash
 # quick start
-git clone https://github.com/Aayushdubey101/MCP-HUB.git
-cd MCP-HUB/mcp-blender-bridge
+git clone https://github.com/Aayushdubey101/Blender-MCP.git
+cd Blender-MCP
 uv sync
 # install blender_addon/mcp_blender_bridge.py in Blender, start the bridge
 uv run mcp-blender-bridge
